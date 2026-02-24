@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import time
 from datetime import UTC, datetime
+from pathlib import Path
 
 from flaw.core.config import Settings, load_settings
 from flaw.core.paths import CACHE_DIR, ensure_dirs
@@ -12,10 +13,12 @@ from flaw.intelligence.db import get_connection
 from flaw.intelligence.enrichment import enrich
 from flaw.intelligence.scoring import score_vulnerabilities
 from flaw.models import (
+    DockerfileIssue,
     EnrichedVulnerability,
     ReportSummary,
     ScanReport,
 )
+from flaw.scanner.dockerfile import DockerfileLintError, lint
 from flaw.scanner.runtime import detect_runtime
 from flaw.scanner.trivy import scan_image
 
@@ -46,6 +49,7 @@ def run_scan(
     image: str,
     *,
     skip_enrich: bool = False,
+    dockerfile: Path | None = None,
     settings: Settings | None = None,
 ) -> ScanReport:
     """
@@ -54,6 +58,7 @@ def run_scan(
     Args:
         image: Container image reference.
         skip_enrich: Skip EPSS/KEV enrichment.
+        dockerfile: Optional Dockerfile path for additional analysis.
         settings: Override settings (useful for testing).
 
     Returns:
@@ -84,7 +89,16 @@ def run_scan(
     # 3. Score and sort
     scored = score_vulnerabilities(enriched)
 
-    # 4. Build report
+    # 4. Dockerfile lint (optional)
+    dockerfile_issues: list[DockerfileIssue] = []
+    if dockerfile is not None:
+        try:
+            dockerfile_issues = lint(dockerfile)
+            logger.debug("Dockerfile lint: %d issues", len(dockerfile_issues))
+        except DockerfileLintError as e:
+            logger.warning("Dockerfile analysis failed: %s", e)
+
+    # 5. Build report
     duration = round(time.monotonic() - start, 1)
     summary = _build_summary(scored)
 
@@ -95,4 +109,5 @@ def run_scan(
         runtime=runtime,
         summary=summary,
         vulnerabilities=scored,
+        dockerfile_issues=dockerfile_issues,
     )

@@ -32,10 +32,14 @@ def scan(
     no_enrich: Annotated[
         bool, typer.Option("--no-enrich", help="Skip EPSS/KEV enrichment")
     ] = False,
+    dockerfile: Annotated[
+        Path | None,
+        typer.Option("--dockerfile", "-d", help="Also analyze a Dockerfile alongside the image"),
+    ] = None,
 ) -> None:
     """Scan a container image for vulnerabilities and prioritize risks."""
     try:
-        report = run_scan(image, skip_enrich=no_enrich)
+        report = run_scan(image, skip_enrich=no_enrich, dockerfile=dockerfile)
     except ScannerError as e:
         stderr.print(f"[bold red]Error:[/bold red] {e}")
         raise typer.Exit(code=2) from e

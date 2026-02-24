@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from flaw.models import ScanReport
 from flaw.pipeline import run_scan
@@ -12,8 +13,6 @@ from flaw.pipeline import run_scan
 
 def _mock_trivy(payload: dict[str, Any]) -> Any:
     """Create a mock for subprocess.run that returns Trivy JSON."""
-    from unittest.mock import MagicMock
-
     mock = MagicMock()
     mock.stdout = json.dumps(payload)
     mock.returncode = 0
@@ -99,3 +98,55 @@ class TestRunScan:
 
         assert "T" in report.scan_time
         assert report.scan_time.endswith("+00:00") or report.scan_time.endswith("Z")
+
+    @patch("flaw.scanner.trivy.subprocess.run")
+    def test_pipeline_with_dockerfile(
+        self, mock_run: Any, trivy_payload_single: dict[str, Any], tmp_path: Path
+    ) -> None:
+        mock_run.return_value = _mock_trivy(trivy_payload_single)
+
+        df = tmp_path / "Dockerfile"
+        df.write_text('FROM python\nCMD ["python"]\n')
+
+        report = run_scan("nginx:1.24", skip_enrich=True, dockerfile=df)
+
+        assert len(report.dockerfile_issues) > 0
+        ids = [i.id for i in report.dockerfile_issues]
+        assert "DF-001" in ids  # no USER
+        assert "DF-003" in ids  # no tag
+        assert "DF-006" in ids  # no HEALTHCHECK
+
+    @patch("flaw.scanner.trivy.subprocess.run")
+    def test_pipeline_without_dockerfile(
+        self, mock_run: Any, trivy_payload_single: dict[str, Any]
+    ) -> None:
+        mock_run.return_value = _mock_trivy(trivy_payload_single)
+
+        report = run_scan("nginx:1.24", skip_enrich=True)
+
+        assert report.dockerfile_issues == []
+
+    @patch("flaw.scanner.trivy.subprocess.run")
+    def test_pipeline_bad_dockerfile_does_not_crash(
+        self, mock_run: Any, trivy_payload_single: dict[str, Any], tmp_path: Path
+    ) -> None:
+        mock_run.return_value = _mock_trivy(trivy_payload_single)
+
+        report = run_scan(
+            "nginx:1.24",
+            skip_enrich=True,
+            dockerfile=tmp_path / "nonexistent",
+        )
+
+        assert report.dockerfile_issues == []
+        assert report.summary.total == 1
+
+    @patch("flaw.scanner.trivy.subprocess.run")
+    def test_pipeline_runtime_detected(
+        self, mock_run: Any, trivy_payload_single: dict[str, Any]
+    ) -> None:
+        mock_run.return_value = _mock_trivy(trivy_payload_single)
+
+        report = run_scan("nginx:1.24", skip_enrich=True)
+
+        assert report.runtime in ("docker", "podman", "unknown")
