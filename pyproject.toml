@@ -1,0 +1,71 @@
+[project]
+name = "flaw"
+version = "0.1.0"
+description = "Intelligent CLI tool for detecting and prioritizing vulnerabilities in container environments"
+readme = { file = "README.md", content-type = "text/markdown" }
+requires-python = ">=3.12"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Miko Avelli"}
+]
+classifiers = [
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: POSIX :: Linux",
+    "Environment :: Console",
+    "Topic :: Security",
+    "Topic :: Software Development :: Quality Assurance",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+]
+dependencies = [
+    "httpx>=0.28",
+    "platformdirs>=4.3",
+    "pydantic>=2.10",
+    "rich>=13.9",
+    "typer>=0.15",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project.scripts]
+flaw = "flaw.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/mikoavelli/flaw"
+Repository = "https://github.com/mikoavelli/flaw"
+
+[dependency-groups]
+dev = [
+    "mypy>=1.14",
+    "pytest>=8.3",
+    "pytest-cov>=6.0",
+    "ruff>=0.8",
+]
+ml = [
+    "xgboost>=2.1",
+    "pandas>=2.2",
+    "scikit-learn>=1.5",
+    "matplotlib>=3.9",
+    "tqdm>=4.66",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/flaw"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "UP", "S", "B", "N"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

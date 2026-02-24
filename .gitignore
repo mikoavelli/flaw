@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Distribution / Packaging
+dist/
+build/
+*.egg-info/
+
+# Project specifics (Local DBs, caches)
+*.db
+*.sqlite3
+.env
+data/models/*.joblib
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
