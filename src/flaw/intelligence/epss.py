@@ -61,7 +61,6 @@ def update(conn: sqlite3.Connection, cache_dir: Path) -> int:
         set_last_update(conn, "epss")
         conn.commit()
 
-        logger.debug("EPSS updated: %d entries", len(rows))
         return len(rows)
 
     except httpx.HTTPError as e:
@@ -82,9 +81,12 @@ def ensure_fresh(
         logger.debug("Offline mode: skipping EPSS update")
         return
     if not is_stale(conn, "epss"):
+        logger.debug("EPSS cache is fresh, skipping update")
         return
+    logger.debug("EPSS cache is stale, updating...")
     try:
-        update(conn, cache_dir)
+        count = update(conn, cache_dir)
+        logger.debug("EPSS updated: %d entries", count)
     except EPSSError:
         logger.warning("EPSS update failed. Using stale or empty data.")
 

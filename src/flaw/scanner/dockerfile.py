@@ -2,68 +2,25 @@
 
 from __future__ import annotations
 
+import logging
 import re
+import time
 from pathlib import Path
 
 from flaw.models import DockerfileIssue
+
+logger = logging.getLogger("flaw")
 
 
 class DockerfileLintError(Exception):
     """Raised when Dockerfile cannot be read or parsed."""
 
 
-_RULES: list[dict] = [
-    {
-        "id": "DF-001",
-        "severity": "HIGH",
-        "description": "No USER directive — container runs as root",
-        "check": "_check_no_user",
-    },
-    {
-        "id": "DF-002",
-        "severity": "HIGH",
-        "description": "Using ADD instead of COPY for local files",
-        "check": "_check_add_instead_of_copy",
-    },
-    {
-        "id": "DF-003",
-        "severity": "MEDIUM",
-        "description": "Base image uses :latest tag",
-        "check": "_check_latest_tag",
-    },
-    {
-        "id": "DF-004",
-        "severity": "MEDIUM",
-        "description": "apt-get install without --no-install-recommends",
-        "check": "_check_apt_no_recommends",
-    },
-    {
-        "id": "DF-005",
-        "severity": "MEDIUM",
-        "description": "pip install without pinned versions",
-        "check": "_check_pip_no_pin",
-    },
-    {
-        "id": "DF-006",
-        "severity": "INFO",
-        "description": "No HEALTHCHECK defined",
-        "check": "_check_no_healthcheck",
-    },
-    {
-        "id": "DF-007",
-        "severity": "HIGH",
-        "description": "Secrets or sensitive data in ENV directive",
-        "check": "_check_env_secrets",
-    },
-]
-
-# Patterns for secret detection in ENV
 _SECRET_PATTERNS = re.compile(
     r"(password|secret|api_key|token|private_key|access_key)",
     re.IGNORECASE,
 )
 
-# Pattern for URLs in ADD (remote fetch — legitimate use of ADD)
 _URL_PATTERN = re.compile(r"https?://")
 
 
@@ -80,6 +37,9 @@ def lint(path: Path) -> list[DockerfileIssue]:
     Raises:
         DockerfileLintError: If the file cannot be read.
     """
+    logger.debug("Linting Dockerfile: %s", path)
+    start = time.monotonic()
+
     if not path.is_file():
         raise DockerfileLintError(f"Dockerfile not found: {path}")
 
@@ -89,18 +49,31 @@ def lint(path: Path) -> list[DockerfileIssue]:
         raise DockerfileLintError(f"Cannot read Dockerfile: {e}") from e
 
     lines = content.splitlines()
+    logger.debug("Dockerfile has %d lines", len(lines))
+
     issues: list[DockerfileIssue] = []
 
-    issues.extend(_check_no_user(lines))
-    issues.extend(_check_add_instead_of_copy(lines))
-    issues.extend(_check_latest_tag(lines))
-    issues.extend(_check_apt_no_recommends(lines))
-    issues.extend(_check_pip_no_pin(lines))
-    issues.extend(_check_no_healthcheck(lines))
-    issues.extend(_check_env_secrets(lines))
+    checks = [
+        ("DF-001", _check_no_user),
+        ("DF-002", _check_add_instead_of_copy),
+        ("DF-003", _check_latest_tag),
+        ("DF-004", _check_apt_no_recommends),
+        ("DF-005", _check_pip_no_pin),
+        ("DF-006", _check_no_healthcheck),
+        ("DF-007", _check_env_secrets),
+    ]
+
+    for rule_id, check_fn in checks:
+        found = check_fn(lines)
+        if found:
+            logger.debug("Rule %s: %d issue(s)", rule_id, len(found))
+        issues.extend(found)
 
     severity_order = {"HIGH": 0, "MEDIUM": 1, "INFO": 2}
     issues.sort(key=lambda i: severity_order.get(i.severity, 99))
+
+    duration = time.monotonic() - start
+    logger.debug("Lint complete: %d issues in %.3fs", len(issues), duration)
 
     return issues
 
@@ -146,7 +119,6 @@ def _check_latest_tag(lines: list[str]) -> list[DockerfileIssue]:
         stripped = line.strip()
         if stripped.upper().startswith("FROM "):
             image = stripped.split()[1] if len(stripped.split()) > 1 else ""
-            # Skip build stage aliases
             image_part = image.split(" AS ")[0] if " AS " in image.upper() else image
             image_part = image_part.split(" as ")[0]
 
@@ -188,7 +160,6 @@ def _check_pip_no_pin(lines: list[str]) -> list[DockerfileIssue]:
     for i, line in enumerate(lines, 1):
         stripped = line.strip()
         if "pip install" in stripped and "-r " not in stripped:
-            # Extract packages after 'pip install'
             parts = stripped.split("pip install")[-1].strip().split()
             for part in parts:
                 if part.startswith("-"):
@@ -202,7 +173,7 @@ def _check_pip_no_pin(lines: list[str]) -> list[DockerfileIssue]:
                             line=i,
                         )
                     )
-                    break  # One issue per line is enough
+                    break
     return issues
 
 

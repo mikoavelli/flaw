@@ -19,7 +19,7 @@ from flaw.models import (
     ScanReport,
 )
 from flaw.scanner.dockerfile import DockerfileLintError, lint
-from flaw.scanner.runtime import detect_runtime
+from flaw.scanner.runtime import resolve_image_source
 from flaw.scanner.trivy import scan_image
 
 logger = logging.getLogger("flaw")
@@ -48,36 +48,27 @@ def _build_summary(vulns: list[EnrichedVulnerability]) -> ReportSummary:
 def run_scan(
     image: str,
     *,
-    skip_enrich: bool = False,
     dockerfile: Path | None = None,
     settings: Settings | None = None,
 ) -> ScanReport:
-    """
-    Execute the full scan pipeline.
-
-    Args:
-        image: Container image reference.
-        skip_enrich: Skip EPSS/KEV enrichment.
-        dockerfile: Optional Dockerfile path for additional analysis.
-        settings: Override settings (useful for testing).
-
-    Returns:
-        Complete scan report with scored vulnerabilities.
-    """
+    """Execute the full scan pipeline."""
     cfg = settings or load_settings()
     ensure_dirs()
 
     start = time.monotonic()
 
-    # 0. Detect runtime
-    runtime = detect_runtime()
-    logger.debug("Container runtime: %s", runtime)
+    # 0. Resolve image source
+    source = resolve_image_source(image)
 
     # 1. Scan
-    logger.debug("Scanning image: %s", image)
-    trivy_report = scan_image(image, timeout=cfg.scan.trivy_timeout)
+    logger.debug("Starting Trivy scan: %s", image)
+    trivy_report = scan_image(
+        image,
+        timeout=cfg.scan.trivy_timeout,
+        image_src=source.runtime if source.is_local else None,
+    )
     raw_vulns = trivy_report.all_vulnerabilities
-    logger.debug("Found %d raw vulnerabilities", len(raw_vulns))
+    logger.debug("Trivy found %d vulnerabilities", len(raw_vulns))
 
     # 2. Enrich
     conn = get_connection()
@@ -86,14 +77,18 @@ def run_scan(
             conn,
             raw_vulns,
             CACHE_DIR,
-            skip_enrich=skip_enrich,
             offline=cfg.flags.offline,
+            force_refresh=cfg.flags.no_cache,
         )
     finally:
         conn.close()
 
     # 3. Score and sort
     scored = score_vulnerabilities(enriched)
+    logger.debug(
+        "Scoring complete, max risk: %.1f",
+        max((v.risk_score for v in scored), default=0.0),
+    )
 
     # 4. Dockerfile lint (optional)
     dockerfile_issues: list[DockerfileIssue] = []
@@ -112,7 +107,7 @@ def run_scan(
         image=image,
         scan_time=datetime.now(UTC).isoformat(),
         duration_seconds=duration,
-        runtime=runtime,
+        runtime=source.runtime,
         summary=summary,
         vulnerabilities=scored,
         dockerfile_issues=dockerfile_issues,

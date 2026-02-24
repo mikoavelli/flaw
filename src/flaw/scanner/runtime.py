@@ -1,4 +1,4 @@
-"""Container runtime detection (Docker / Podman)."""
+"""Container runtime detection and image source resolution."""
 
 from __future__ import annotations
 
@@ -6,39 +6,67 @@ import json
 import logging
 import shutil
 import subprocess
+from dataclasses import dataclass
 
 logger = logging.getLogger("flaw")
 
 
-def detect_runtime() -> str:
-    """
-    Detect available container runtime.
+@dataclass(frozen=True, slots=True)
+class ImageSource:
+    """Result of image source resolution."""
 
-    Returns:
-        'docker', 'podman', or 'unknown'.
+    runtime: str
+    is_local: bool
+    image_ref: str
+
+
+def _image_exists(runtime: str, image_ref: str) -> bool:
+    """Check if an image exists in local storage for a given runtime."""
+    try:
+        result = subprocess.run(  # noqa: S603
+            [runtime, "image", "inspect", image_ref],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        return result.returncode == 0
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return False
+
+
+def resolve_image_source(image_ref: str) -> ImageSource:
     """
+    Determine where an image will come from.
+
+    Checks local storage in order: docker → podman.
+    Logs each step for --verbose output.
+    """
+    runtimes: list[str] = []
     for candidate in ("docker", "podman"):
         if shutil.which(candidate):
-            logger.debug("Detected container runtime: %s", candidate)
-            return candidate
+            runtimes.append(candidate)
+            logger.debug("Runtime '%s' is available", candidate)
+        else:
+            logger.debug("Runtime '%s' not found in PATH", candidate)
 
-    logger.debug("No container runtime found")
-    return "unknown"
+    if not runtimes:
+        logger.warning("No container runtime found (docker, podman)")
+        return ImageSource(runtime="unknown", is_local=False, image_ref=image_ref)
+
+    for rt in runtimes:
+        logger.debug("Checking %s local storage for '%s'...", rt, image_ref)
+        if _image_exists(rt, image_ref):
+            logger.debug("Found '%s' in %s local storage", image_ref, rt)
+            return ImageSource(runtime=rt, is_local=True, image_ref=image_ref)
+        logger.debug("Image '%s' not in %s local storage", image_ref, rt)
+
+    logger.debug("Image '%s' will be pulled from remote registry", image_ref)
+    return ImageSource(runtime=runtimes[0], is_local=False, image_ref=image_ref)
 
 
 def inspect_image(image_ref: str, runtime: str | None = None) -> dict:
-    """
-    Run docker/podman inspect on an image.
-
-    Args:
-        image_ref: Image reference.
-        runtime: Override runtime binary. Auto-detects if None.
-
-    Returns:
-        Parsed inspect JSON (first element).
-        Empty dict on any failure.
-    """
-    rt = runtime or detect_runtime()
+    """Run docker/podman inspect on an image. Returns empty dict on failure."""
+    rt = runtime or "unknown"
     if rt == "unknown":
         return {}
 

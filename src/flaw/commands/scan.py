@@ -9,16 +9,21 @@ import typer
 
 from flaw.core.config import load_settings
 from flaw.core.state import get_flags
+from flaw.models import ScanReport
 from flaw.pipeline import run_scan
 from flaw.report.json_fmt import write_scan_report
 from flaw.report.terminal import print_scan_report, stderr
 from flaw.scanner.trivy import ScannerError
 
-scan_app = typer.Typer(name="scan", help="Scan a container image for vulnerabilities.")
+
+def _apply_top(report: ScanReport, top: int | None) -> ScanReport:
+    """Return a copy of the report with only top N vulnerabilities."""
+    if top is None or top >= len(report.vulnerabilities):
+        return report
+    return report.model_copy(update={"vulnerabilities": report.vulnerabilities[:top]})
 
 
-@scan_app.callback(invoke_without_command=True)
-def scan(
+def scan_command(
     image: Annotated[str, typer.Argument(help="Container image to scan (e.g., nginx:1.24)")],
     format_: Annotated[str, typer.Option("--format", "-f", help="Output format")] = "table",
     output: Annotated[
@@ -31,9 +36,6 @@ def scan(
     top: Annotated[
         int | None, typer.Option("--top", help="Show only top N vulnerabilities")
     ] = None,
-    no_enrich: Annotated[
-        bool, typer.Option("--no-enrich", help="Skip EPSS/KEV enrichment")
-    ] = False,
     dockerfile: Annotated[
         Path | None,
         typer.Option("--dockerfile", "-d", help="Also analyze a Dockerfile alongside the image"),
@@ -44,26 +46,32 @@ def scan(
     settings = load_settings(flags=flags)
 
     try:
-        report = run_scan(
+        full_report = run_scan(
             image,
-            skip_enrich=no_enrich,
             dockerfile=dockerfile,
             settings=settings,
         )
     except ScannerError as e:
-        stderr.print(f"[bold red]Error:[/bold red] {e}")
+        if not flags.quiet:
+            stderr.print(f"[bold red]Error:[/bold red] {e}")
         raise typer.Exit(code=2) from e
+
+    threshold_exceeded = threshold is not None and full_report.summary.max_risk_score > threshold
+
+    report = _apply_top(full_report, top)
 
     if format_ == "json":
         write_scan_report(report, output=output)
     else:
-        print_scan_report(report, top=top)
+        if not flags.quiet:
+            print_scan_report(report)
         if output is not None:
             write_scan_report(report, output=output)
 
-    if threshold is not None and report.summary.max_risk_score > threshold:
-        stderr.print(
-            f"\n[bold red]FAIL:[/bold red] Max risk score {report.summary.max_risk_score}"
-            f" exceeds threshold {threshold}"
-        )
+    if threshold_exceeded:
+        if not flags.quiet:
+            stderr.print(
+                f"\n[bold red]FAIL:[/bold red] Max risk score"
+                f" {full_report.summary.max_risk_score} exceeds threshold {threshold}"
+            )
         raise typer.Exit(code=1)

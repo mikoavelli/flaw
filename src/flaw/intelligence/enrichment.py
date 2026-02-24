@@ -17,8 +17,8 @@ def enrich(
     vulnerabilities: list[Vulnerability],
     cache_dir: Path,
     *,
-    skip_enrich: bool = False,
     offline: bool = False,
+    force_refresh: bool = False,
 ) -> list[EnrichedVulnerability]:
     """
     Enrich raw Trivy vulnerabilities with EPSS scores and KEV flags.
@@ -27,31 +27,36 @@ def enrich(
         conn: SQLite connection to cache database.
         vulnerabilities: Raw vulnerabilities from Trivy scan.
         cache_dir: Path for temporary download files.
-        skip_enrich: If True, skip EPSS/KEV lookup entirely.
         offline: If True, use cached data only (no downloads).
-
-    Returns:
-        List of enriched vulnerabilities (without risk scores yet).
+        force_refresh: If True, re-download regardless of TTL.
     """
     if not vulnerabilities:
         return []
 
     cve_ids = [v.cve_id for v in vulnerabilities]
-    epss_scores: dict[str, float] = {}
-    kev_set: set[str] = set()
 
-    if not skip_enrich:
+    if force_refresh and not offline:
+        logger.debug("Force refreshing EPSS and KEV data")
+        try:
+            epss.update(conn, cache_dir)
+        except epss.EPSSError:
+            logger.warning("EPSS force refresh failed.")
+        try:
+            kev.update(conn, cache_dir)
+        except kev.KEVError:
+            logger.warning("KEV force refresh failed.")
+    else:
         epss.ensure_fresh(conn, cache_dir, offline=offline)
         kev.ensure_fresh(conn, cache_dir, offline=offline)
 
-        epss_scores = epss.get_scores(conn, cve_ids)
-        kev_set = kev.lookup(conn, cve_ids)
+    epss_scores = epss.get_scores(conn, cve_ids)
+    kev_set = kev.lookup(conn, cve_ids)
 
-        logger.debug(
-            "Enrichment: %d EPSS scores, %d KEV matches",
-            len(epss_scores),
-            len(kev_set),
-        )
+    logger.debug(
+        "Enrichment: %d EPSS scores, %d KEV matches",
+        len(epss_scores),
+        len(kev_set),
+    )
 
     enriched = []
     for v in vulnerabilities:

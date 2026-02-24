@@ -18,18 +18,12 @@ def write_scan_report(
     *,
     output: Path | None = None,
 ) -> None:
-    """
-    Write scan report as JSON.
-
-    If output is given, writes to file and prints confirmation to stderr.
-    Otherwise writes to stdout.
-    """
+    """Write scan report as JSON."""
     data = report.model_dump(mode="json")
     json_str = json.dumps(data, indent=2, ensure_ascii=False)
 
     if output is not None:
         output.write_text(json_str, encoding="utf-8")
-        stderr.print(f"Report saved to [bold]{output}[/bold]")
     else:
         sys.stdout.write(json_str + "\n")
 
@@ -40,12 +34,7 @@ def write_lint_report(
     *,
     output: Path | None = None,
 ) -> None:
-    """
-    Write lint report as JSON.
-
-    If output is given, writes to file.
-    Otherwise writes to stdout.
-    """
+    """Write lint report as JSON."""
     data = {
         "dockerfile": path,
         "total_issues": len(issues),
@@ -55,6 +44,5 @@ def write_lint_report(
 
     if output is not None:
         output.write_text(json_str, encoding="utf-8")
-        stderr.print(f"Report saved to [bold]{output}[/bold]")
     else:
         sys.stdout.write(json_str + "\n")

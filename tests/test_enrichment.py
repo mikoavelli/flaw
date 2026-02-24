@@ -25,11 +25,11 @@ def _make_raw_vuln(cve_id: str = "CVE-2023-44487") -> Vulnerability:
 class TestEnrich:
     """Tests for the enrich function."""
 
-    def test_enrich_skip_mode(self, tmp_path: Path) -> None:
+    def test_enrich_offline_empty_cache(self, tmp_path: Path) -> None:
         conn = get_connection(tmp_path / "test.db")
         vulns = [_make_raw_vuln()]
 
-        enriched = enrich(conn, vulns, tmp_path, skip_enrich=True)
+        enriched = enrich(conn, vulns, tmp_path, offline=True)
 
         assert len(enriched) == 1
         assert enriched[0].cve_id == "CVE-2023-44487"
@@ -42,7 +42,7 @@ class TestEnrich:
         conn = get_connection(tmp_path / "test.db")
         vulns = [_make_raw_vuln()]
 
-        enriched = enrich(conn, vulns, tmp_path, skip_enrich=True)
+        enriched = enrich(conn, vulns, tmp_path, offline=True)
 
         assert enriched[0].pkg_name == "nghttp2"
         assert enriched[0].installed_version == "1.55.1"
@@ -77,7 +77,7 @@ class TestEnrich:
         conn.commit()
 
         vulns = [_make_raw_vuln("CVE-2023-44487")]
-        enriched = enrich(conn, vulns, tmp_path, skip_enrich=False)
+        enriched = enrich(conn, vulns, tmp_path, offline=False)
 
         assert enriched[0].epss == 0.9214
         assert enriched[0].in_kev is True

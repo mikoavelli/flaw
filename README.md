@@ -72,7 +72,6 @@ flaw scan [OPTIONS] <IMAGE>
 Options:
       --dockerfile <PATH>    Also analyze a Dockerfile alongside the image
       --top <N>              Show only top N vulnerabilities by risk score
-      --no-enrich            Skip EPSS/KEV enrichment (CVSS-only scoring)
   -f, --format <FORMAT>      Output format: table (default), json
   -o, --output <FILE>        Write JSON report to file
   -t, --threshold <SCORE>    Exit code 1 if any CVE exceeds the given risk score

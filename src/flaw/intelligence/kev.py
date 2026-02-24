@@ -40,7 +40,6 @@ def update(conn: sqlite3.Connection, cache_dir: Path) -> int:
         set_last_update(conn, "kev")
         conn.commit()
 
-        logger.debug("KEV updated: %d entries", len(cve_ids))
         return len(cve_ids)
 
     except httpx.HTTPError as e:
@@ -60,9 +59,12 @@ def ensure_fresh(
         logger.debug("Offline mode: skipping KEV update")
         return
     if not is_stale(conn, "kev"):
+        logger.debug("KEV cache is fresh, skipping update")
         return
+    logger.debug("KEV cache is stale, updating...")
     try:
-        update(conn, cache_dir)
+        count = update(conn, cache_dir)
+        logger.debug("KEV updated: %d entries", count)
     except KEVError:
         logger.warning("KEV update failed. Using stale or empty data.")
 

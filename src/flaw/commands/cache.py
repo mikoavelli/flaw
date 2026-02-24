@@ -8,6 +8,7 @@ import typer
 from rich.table import Table
 
 from flaw.core.paths import CACHE_DIR, DATA_DIR, ensure_dirs
+from flaw.core.state import get_flags
 from flaw.intelligence import epss, kev
 from flaw.intelligence.db import (
     DB_PATH,
@@ -18,12 +19,18 @@ from flaw.intelligence.db import (
 )
 from flaw.report.terminal import stderr
 
-cache_app = typer.Typer(name="cache", help="Manage local vulnerability databases.")
+cache_app = typer.Typer(help="Manage local vulnerability databases.")
 
 
 @cache_app.command()
 def update() -> None:
     """Download or refresh EPSS and KEV databases."""
+    flags = get_flags()
+
+    if flags.offline:
+        stderr.print("[yellow]Cannot update in offline mode.[/yellow]")
+        raise typer.Exit(code=2)
+
     ensure_dirs()
     conn = get_connection()
 
