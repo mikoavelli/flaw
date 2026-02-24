@@ -1,0 +1,85 @@
+"""Tests for vulnerability enrichment."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from flaw.intelligence.db import get_connection
+from flaw.intelligence.enrichment import enrich
+from flaw.models import Vulnerability
+
+
+def _make_raw_vuln(cve_id: str = "CVE-2023-44487") -> Vulnerability:
+    """Create a raw Trivy vulnerability for testing."""
+    return Vulnerability.model_validate(
+        {
+            "VulnerabilityID": cve_id,
+            "PkgName": "nghttp2",
+            "InstalledVersion": "1.55.1",
+            "Severity": "CRITICAL",
+            "CVSS": {"nvd": {"V3Score": 7.5}},
+        }
+    )
+
+
+class TestEnrich:
+    """Tests for the enrich function."""
+
+    def test_enrich_skip_mode(self, tmp_path: Path) -> None:
+        conn = get_connection(tmp_path / "test.db")
+        vulns = [_make_raw_vuln()]
+
+        enriched = enrich(conn, vulns, tmp_path, skip_enrich=True)
+
+        assert len(enriched) == 1
+        assert enriched[0].cve_id == "CVE-2023-44487"
+        assert enriched[0].epss == 0.0
+        assert enriched[0].in_kev is False
+        assert enriched[0].risk_score == 0.0
+        conn.close()
+
+    def test_enrich_preserves_fields(self, tmp_path: Path) -> None:
+        conn = get_connection(tmp_path / "test.db")
+        vulns = [_make_raw_vuln()]
+
+        enriched = enrich(conn, vulns, tmp_path, skip_enrich=True)
+
+        assert enriched[0].pkg_name == "nghttp2"
+        assert enriched[0].installed_version == "1.55.1"
+        assert enriched[0].severity == "CRITICAL"
+        assert enriched[0].cvss == 7.5
+        conn.close()
+
+    def test_enrich_empty_list(self, tmp_path: Path) -> None:
+        conn = get_connection(tmp_path / "test.db")
+        assert enrich(conn, [], tmp_path) == []
+        conn.close()
+
+    def test_enrich_with_prepopulated_db(self, tmp_path: Path) -> None:
+        conn = get_connection(tmp_path / "test.db")
+
+        conn.execute(
+            "INSERT INTO epss_scores (cve, score) VALUES (?, ?)",
+            ("CVE-2023-44487", 0.9214),
+        )
+        conn.execute(
+            "INSERT INTO kev_entries (cve) VALUES (?)",
+            ("CVE-2023-44487",),
+        )
+        conn.execute(
+            "INSERT INTO metadata (key, value) VALUES (?, ?)",
+            ("epss_updated_at", "9999999999"),
+        )
+        conn.execute(
+            "INSERT INTO metadata (key, value) VALUES (?, ?)",
+            ("kev_updated_at", "9999999999"),
+        )
+        conn.commit()
+
+        vulns = [_make_raw_vuln("CVE-2023-44487")]
+        enriched = enrich(conn, vulns, tmp_path, skip_enrich=False)
+
+        assert enriched[0].epss == 0.9214
+        assert enriched[0].in_kev is True
+        assert enriched[0].has_exploit is True
+        conn.close()
