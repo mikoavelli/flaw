@@ -16,6 +16,7 @@ from flaw.models import (
     ReportSummary,
     ScanReport,
 )
+from flaw.scanner.runtime import detect_runtime
 from flaw.scanner.trivy import scan_image
 
 logger = logging.getLogger("flaw")
@@ -63,6 +64,10 @@ def run_scan(
 
     start = time.monotonic()
 
+    # 0. Detect runtime
+    runtime = detect_runtime()
+    logger.debug("Container runtime: %s", runtime)
+
     # 1. Scan
     logger.debug("Scanning image: %s", image)
     trivy_report = scan_image(image, timeout=cfg.scan.trivy_timeout)
@@ -87,6 +92,7 @@ def run_scan(
         image=image,
         scan_time=datetime.now(UTC).isoformat(),
         duration_seconds=duration,
+        runtime=runtime,
         summary=summary,
         vulnerabilities=scored,
     )

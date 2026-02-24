@@ -6,6 +6,7 @@ import typer
 
 from flaw import __version__
 from flaw.commands.cache import cache_app
+from flaw.commands.lint import lint_app
 from flaw.commands.scan import scan_app
 
 app = typer.Typer(
@@ -16,6 +17,7 @@ app = typer.Typer(
 )
 
 app.add_typer(scan_app)
+app.add_typer(lint_app)
 app.add_typer(cache_app)
 
 
