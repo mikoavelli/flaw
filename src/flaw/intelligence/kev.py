@@ -27,7 +27,7 @@ def update(conn: sqlite3.Connection, cache_dir: Path) -> int:
         Number of entries inserted.
     """
     try:
-        with httpx.Client(timeout=30) as client:
+        with httpx.Client(timeout=30, follow_redirects=True) as client:
             response = client.get(KEV_URL)
             response.raise_for_status()
             data = response.json()

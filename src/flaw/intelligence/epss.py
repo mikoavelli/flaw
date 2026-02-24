@@ -45,7 +45,7 @@ def update(conn: sqlite3.Connection, cache_dir: Path) -> int:
     gz_path = cache_dir / "epss_temp.csv.gz"
 
     try:
-        with httpx.Client(timeout=60) as client:
+        with httpx.Client(timeout=60, follow_redirects=True) as client:
             with client.stream("GET", EPSS_URL) as response:
                 response.raise_for_status()
                 with open(gz_path, "wb") as f:
