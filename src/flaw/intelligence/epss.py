@@ -71,8 +71,16 @@ def update(conn: sqlite3.Connection, cache_dir: Path) -> int:
             gz_path.unlink()
 
 
-def ensure_fresh(conn: sqlite3.Connection, cache_dir: Path) -> None:
+def ensure_fresh(
+    conn: sqlite3.Connection,
+    cache_dir: Path,
+    *,
+    offline: bool = False,
+) -> None:
     """Update EPSS if cache is stale. Warns on failure instead of crashing."""
+    if offline:
+        logger.debug("Offline mode: skipping EPSS update")
+        return
     if not is_stale(conn, "epss"):
         return
     try:

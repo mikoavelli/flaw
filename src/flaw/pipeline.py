@@ -82,7 +82,13 @@ def run_scan(
     # 2. Enrich
     conn = get_connection()
     try:
-        enriched = enrich(conn, raw_vulns, CACHE_DIR, skip_enrich=skip_enrich)
+        enriched = enrich(
+            conn,
+            raw_vulns,
+            CACHE_DIR,
+            skip_enrich=skip_enrich,
+            offline=cfg.flags.offline,
+        )
     finally:
         conn.close()
 

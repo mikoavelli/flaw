@@ -7,6 +7,8 @@ from typing import Annotated
 
 import typer
 
+from flaw.core.config import load_settings
+from flaw.core.state import get_flags
 from flaw.pipeline import run_scan
 from flaw.report.json_fmt import write_scan_report
 from flaw.report.terminal import print_scan_report, stderr
@@ -38,13 +40,20 @@ def scan(
     ] = None,
 ) -> None:
     """Scan a container image for vulnerabilities and prioritize risks."""
+    flags = get_flags()
+    settings = load_settings(flags=flags)
+
     try:
-        report = run_scan(image, skip_enrich=no_enrich, dockerfile=dockerfile)
+        report = run_scan(
+            image,
+            skip_enrich=no_enrich,
+            dockerfile=dockerfile,
+            settings=settings,
+        )
     except ScannerError as e:
         stderr.print(f"[bold red]Error:[/bold red] {e}")
         raise typer.Exit(code=2) from e
 
-    # Output
     if format_ == "json":
         write_scan_report(report, output=output)
     else:
@@ -52,7 +61,6 @@ def scan(
         if output is not None:
             write_scan_report(report, output=output)
 
-    # Threshold check
     if threshold is not None and report.summary.max_risk_score > threshold:
         stderr.print(
             f"\n[bold red]FAIL:[/bold red] Max risk score {report.summary.max_risk_score}"

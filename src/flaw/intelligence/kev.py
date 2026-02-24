@@ -49,8 +49,16 @@ def update(conn: sqlite3.Connection, cache_dir: Path) -> int:
         raise KEVError(f"Failed to parse KEV data: {e}") from e
 
 
-def ensure_fresh(conn: sqlite3.Connection, cache_dir: Path) -> None:
+def ensure_fresh(
+    conn: sqlite3.Connection,
+    cache_dir: Path,
+    *,
+    offline: bool = False,
+) -> None:
     """Update KEV if cache is stale. Warns on failure instead of crashing."""
+    if offline:
+        logger.debug("Offline mode: skipping KEV update")
+        return
     if not is_stale(conn, "kev"):
         return
     try:
