@@ -1,0 +1,127 @@
+"""Rich terminal output for scan and lint reports."""
+
+from __future__ import annotations
+
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+
+from flaw.models import DockerfileIssue, EnrichedVulnerability, ScanReport
+
+stderr = Console(stderr=True)
+
+# Severity → Rich color
+_SEV_COLORS: dict[str, str] = {
+    "CRITICAL": "bold red",
+    "HIGH": "red",
+    "MEDIUM": "yellow",
+    "LOW": "blue",
+    "INFO": "dim",
+}
+
+
+def _severity_style(severity: str) -> str:
+    """Return Rich style string for a severity level."""
+    return _SEV_COLORS.get(severity.upper(), "white")
+
+
+def print_scan_report(
+    report: ScanReport,
+    *,
+    top: int | None = None,
+) -> None:
+    """Render a full scan report to stderr."""
+    # ── Header panel ──
+    header = (
+        f"[bold]Flaw[/bold] — {report.image}\n"
+        f"Scanned in {report.duration_seconds:.1f}s"
+        f" | {report.summary.total} CVEs"
+        f" | Max Risk: {report.summary.max_risk_score}"
+    )
+    stderr.print(Panel(header, expand=False))
+
+    # ── Warning banner ──
+    if report.summary.critical > 0:
+        stderr.print(
+            f"\n [bold red]⚠  WARNING: {report.summary.critical}"
+            f" CRITICAL vulnerabilities detected![/bold red]"
+        )
+
+    # ── Vulnerability table ──
+    vulns = report.vulnerabilities
+    if top is not None:
+        vulns = vulns[:top]
+
+    if vulns:
+        _print_vuln_table(vulns)
+    else:
+        stderr.print("\n [green]No vulnerabilities found.[/green]\n")
+
+    # ── Dockerfile issues ──
+    if report.dockerfile_issues:
+        _print_dockerfile_issues(report.dockerfile_issues)
+
+    # ── Summary ──
+    _print_summary(report)
+
+
+def _print_vuln_table(vulns: list[EnrichedVulnerability]) -> None:
+    """Render the vulnerability table."""
+    table = Table(show_header=True, header_style="bold", box=None)
+    table.add_column("#", style="dim", width=4)
+    table.add_column("CVE", min_width=16)
+    table.add_column("Pkg", min_width=10)
+    table.add_column("CVSS", justify="right", width=5)
+    table.add_column("EPSS", justify="right", width=7)
+    table.add_column("KEV", justify="center", width=4)
+    table.add_column("Risk", justify="right", width=6)
+
+    for i, v in enumerate(vulns, 1):
+        sev_style = _severity_style(v.severity)
+        kev_marker = "[red]●[/red]" if v.in_kev else ""
+        table.add_row(
+            str(i),
+            f"[{sev_style}]{v.cve_id}[/{sev_style}]",
+            v.pkg_name,
+            f"{v.cvss:.1f}",
+            f"{v.epss:.4f}",
+            kev_marker,
+            f"[bold]{v.risk_score:.1f}[/bold]",
+        )
+
+    stderr.print()
+    stderr.print(table)
+    stderr.print()
+
+
+def _print_dockerfile_issues(issues: list[DockerfileIssue]) -> None:
+    """Render Dockerfile issues."""
+    stderr.print(f"\n [bold]Dockerfile Issues ({len(issues)}):[/bold]")
+    for issue in issues:
+        style = _severity_style(issue.severity)
+        line_info = f" (line {issue.line})" if issue.line else ""
+        stderr.print(
+            f"   [{style}]{issue.severity:<6}[/{style}]  {issue.id}  {issue.description}{line_info}"
+        )
+    stderr.print()
+
+
+def _print_summary(report: ScanReport) -> None:
+    """Render the summary block."""
+    s = report.summary
+    stderr.print(" [bold]Summary:[/bold]")
+    stderr.print(f"   Critical: {s.critical}  High: {s.high}  Medium: {s.medium}  Low: {s.low}")
+    if s.kev_count > 0 or s.exploit_count > 0:
+        stderr.print(f"   In CISA KEV: {s.kev_count}  Has public exploit: {s.exploit_count}")
+    stderr.print()
+
+
+def print_lint_report(issues: list[DockerfileIssue], path: str) -> None:
+    """Render a Dockerfile lint report to stderr."""
+    header = f"[bold]Flaw Lint[/bold] — {path}\n{len(issues)} issues found"
+    stderr.print(Panel(header, expand=False))
+
+    if issues:
+        _print_dockerfile_issues(issues)
+    else:
+        stderr.print("\n [green]No issues found.[/green]\n")
