@@ -1,13 +1,11 @@
-"""Evaluate trained model and generate metrics + plots."""
-
-from __future__ import annotations
-
+# evaluate.py
 import json
 import logging
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import pandas as pd
+from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.metrics import (
     accuracy_score,
     classification_report,
@@ -26,7 +24,7 @@ DATASET = DATA_DIR / "dataset.csv"
 MODEL_DIR = Path(__file__).parent.parent / "data" / "models"
 PLOTS_DIR = Path(__file__).parent / "plots"
 
-FEATURES = [
+BASE_FEATURES = [
     "base_score",
     "attack_vector",
     "attack_complexity",
@@ -41,20 +39,46 @@ LABEL = "label"
 
 
 def evaluate() -> None:
-    """Load model, compute metrics, generate plots."""
     model_path = MODEL_DIR / "xgboost_v1.json"
-    if not model_path.exists():
-        logger.error("Model not found: %s", model_path)
+    meta_path = MODEL_DIR / "model_meta.json"
+
+    if not model_path.exists() or not meta_path.exists():
+        logger.error("Model or metadata not found.")
         return
 
     PLOTS_DIR.mkdir(parents=True, exist_ok=True)
 
+    with open(meta_path, encoding="utf-8") as f:
+        meta = json.load(f)
+
+    all_features = meta["features"]
+    vendor_vocab = meta["vendor_vocab"]
+    product_vocab = meta["product_vocab"]
+
     logger.info("Loading dataset and model...")
     df = pd.read_csv(DATASET)
-    x = df[FEATURES]
-    y = df[LABEL]
+    df = df.dropna(subset=BASE_FEATURES + [LABEL])
 
-    _, x_test, _, y_test = train_test_split(x, y, test_size=0.2, random_state=42, stratify=y)
+    df["vendors"] = df["vendors"].fillna("")
+    df["products"] = df["products"].fillna("")
+
+    vendor_vec = CountVectorizer(vocabulary=vendor_vocab, binary=True, token_pattern=r"[^\s]+")
+    product_vec = CountVectorizer(vocabulary=product_vocab, binary=True, token_pattern=r"[^\s]+")
+
+    X_vendors = vendor_vec.fit_transform(df["vendors"]).toarray()
+    X_products = product_vec.fit_transform(df["products"]).toarray()
+
+    vendor_cols = [f"v_{c}" for c in vendor_vocab]
+    product_cols = [f"p_{c}" for c in product_vocab]
+
+    X_base_df = df[BASE_FEATURES].reset_index(drop=True)
+    X_v_df = pd.DataFrame(X_vendors, columns=vendor_cols)
+    X_p_df = pd.DataFrame(X_products, columns=product_cols)
+
+    X = pd.concat([X_base_df, X_v_df, X_p_df], axis=1)
+    y = df[LABEL].reset_index(drop=True)
+
+    _, x_test, _, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
 
     model = XGBClassifier()
     model.load_model(str(model_path))
@@ -77,8 +101,8 @@ def evaluate() -> None:
 
     report = classification_report(y_test, y_pred, output_dict=True)
     metrics = {
-        "accuracy": accuracy,
-        "auc_roc": auc,
+        "accuracy": float(accuracy),
+        "auc_roc": float(auc),
         "classification_report": report,
         "confusion_matrix": cm.tolist(),
     }
@@ -92,21 +116,21 @@ def evaluate() -> None:
     plt.plot([0, 1], [0, 1], "k--", label="Random")
     plt.xlabel("False Positive Rate")
     plt.ylabel("True Positive Rate")
-    plt.title("ROC Curve — Vulnerability Exploitation Prediction")
+    plt.title("ROC Curve")
     plt.legend()
     plt.tight_layout()
     plt.savefig(PLOTS_DIR / "roc_curve.png", dpi=150)
-    logger.info("ROC plot: %s", PLOTS_DIR / "roc_curve.png")
+    logger.info("ROC plot generated: %s", PLOTS_DIR / "roc_curve.png")
 
-    plt.figure(figsize=(10, 6))
+    plt.figure(figsize=(10, 8))
     importance = model.feature_importances_
-    sorted_idx = importance.argsort()
-    plt.barh([FEATURES[i] for i in sorted_idx], importance[sorted_idx])
+    sorted_idx = importance.argsort()[-30:]
+    plt.barh([all_features[i] for i in sorted_idx], importance[sorted_idx])
     plt.xlabel("Importance")
-    plt.title("Feature Importance — XGBoost")
+    plt.title("Top 30 Feature Importance")
     plt.tight_layout()
     plt.savefig(PLOTS_DIR / "feature_importance.png", dpi=150)
-    logger.info("Feature importance plot: %s", PLOTS_DIR / "feature_importance.png")
+    logger.info("Feature importance plot generated: %s", PLOTS_DIR / "feature_importance.png")
 
 
 if __name__ == "__main__":

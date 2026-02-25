@@ -1,3 +1,4 @@
+# prepare.py
 import csv
 import gzip
 import logging
@@ -37,13 +38,15 @@ FEATURES_LIST = [
     "confidentiality",
     "integrity",
     "availability",
+    "vendors",
+    "products",
     "epss",
     "in_kev",
 ]
 
 
 def download_epss():
-    logger.info("Downloading EPSS...")
+    logger.info("Downloading EPSS data...")
     with httpx.Client(timeout=120, follow_redirects=True) as client:
         r = client.get(EPSS_URL)
         r.raise_for_status()
@@ -60,7 +63,7 @@ def download_epss():
 
 
 def download_kev():
-    logger.info("Downloading KEV...")
+    logger.info("Downloading KEV catalog...")
     with httpx.Client(timeout=60) as client:
         r = client.get(KEV_URL)
         r.raise_for_status()
@@ -72,7 +75,7 @@ def fetch_nvd_data():
     start_index = 0
     results_per_page = 2000
 
-    logger.info("Downloading NVD...")
+    logger.info("Downloading NVD data...")
 
     with httpx.Client(timeout=90) as client:
         while True:
@@ -92,7 +95,7 @@ def fetch_nvd_data():
 
                 all_vulns.extend(batch)
                 total = data.get("totalResults", 0)
-                logger.info(f"Received {len(all_vulns)} / {total}")
+                logger.info(f"Fetched {len(all_vulns)} / {total}")
 
                 start_index += results_per_page
                 if start_index >= total:
@@ -100,13 +103,14 @@ def fetch_nvd_data():
                 time.sleep(6.5)
 
             except Exception as e:
-                logger.error(f"Error: {e}")
+                logger.error(f"HTTP Error: {e}")
                 time.sleep(10)
     return all_vulns
 
 
 def extract_features(item):
     metrics = item.get("cve", {}).get("metrics", {})
+    res = None
 
     for v_key in ("cvssMetricV31", "cvssMetricV30"):
         if m_list := metrics.get(v_key):
@@ -134,11 +138,29 @@ def extract_features(item):
                 }
 
                 if any(val == -1 for val in res.values()):
-                    return None
-                return res
+                    res = None
             except Exception:
-                return None
-    return None
+                res = None
+            break
+
+    if not res:
+        return None
+
+    vendors = set()
+    products = set()
+    for config in item.get("cve", {}).get("configurations", []):
+        for node in config.get("nodes", []):
+            for match in node.get("cpeMatch", []):
+                cpe23 = match.get("criteria", "")
+                parts = cpe23.split(":")
+                if len(parts) >= 5:
+                    vendors.add(parts[3])
+                    products.add(parts[4])
+
+    res["vendors"] = " ".join(vendors)
+    res["products"] = " ".join(products)
+
+    return res
 
 
 def main():
@@ -167,12 +189,12 @@ def main():
             {"cve_id": cve_id, **feats, "epss": epss_val, "in_kev": in_kev, "label": label}
         )
 
-    with open(OUTPUT_CSV, "w", newline="") as f:
+    with open(OUTPUT_CSV, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=["cve_id"] + FEATURES_LIST + ["label"])
         writer.writeheader()
         writer.writerows(dataset)
 
-    logger.info(f"Result: {len(dataset)} in dataset. Skipped without CVSS v3: {skipped_cvss}")
+    logger.info(f"Total entries: {len(dataset)}. Skipped due to missing CVSS v3: {skipped_cvss}")
 
 
 if __name__ == "__main__":
