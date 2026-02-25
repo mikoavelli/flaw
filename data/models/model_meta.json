@@ -1,0 +1,15 @@
+{
+  "features": [
+    "base_score",
+    "attack_vector",
+    "attack_complexity",
+    "privileges_required",
+    "user_interaction",
+    "scope",
+    "confidentiality",
+    "integrity",
+    "availability"
+  ],
+  "score": 0.7882838138315714,
+  "best_iteration": 4
+}

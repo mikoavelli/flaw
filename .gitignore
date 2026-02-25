@@ -20,6 +20,10 @@ build/
 .env
 data/models/*.joblib
 
+# ML artifacts
+ml/data/
+ml/plots/
+
 # IDE
 .vscode/
 .idea/

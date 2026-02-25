@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+from unittest.mock import patch
+
 from flaw.intelligence.scoring import (
     WEIGHT_CVSS,
     WEIGHT_EPSS,
     WEIGHT_EXPLOIT,
     WEIGHT_KEV,
     _formula_score,
+    _TreeModel,
     score_vulnerabilities,
 )
 from flaw.models import EnrichedVulnerability
@@ -72,6 +77,42 @@ class TestFormulaScore:
         assert score > 0.0
 
 
+class TestTreeModel:
+    """Tests for the pure-Python tree evaluator."""
+
+    def test_simple_tree(self) -> None:
+        tree = {
+            "split": 0,
+            "split_condition": 5.0,
+            "children": [
+                {"leaf": -1.0},
+                {"leaf": 1.0},
+            ],
+        }
+        model = _TreeModel([tree])
+
+        low = model.predict([3.0, 0.0, 0.0, 0.0])
+        high = model.predict([7.0, 0.0, 0.0, 0.0])
+
+        assert low < 0.5
+        assert high > 0.5
+
+    def test_multi_tree(self) -> None:
+        tree1 = {"leaf": 0.5}
+        tree2 = {"leaf": 0.5}
+        model = _TreeModel([tree1, tree2])
+
+        result = model.predict([0.0, 0.0, 0.0, 0.0])
+        # sigmoid(1.0) ≈ 0.731
+        assert 0.7 < result < 0.8
+
+    def test_empty_trees(self) -> None:
+        model = _TreeModel([])
+        result = model.predict([5.0, 0.5, 0.0, 0.0])
+        # sigmoid(0) = 0.5
+        assert result == 0.5
+
+
 class TestScoreVulnerabilities:
     """Tests for the scoring pipeline."""
 
@@ -97,3 +138,46 @@ class TestScoreVulnerabilities:
         vulns = [_make_vuln(cvss=7.5, epss=0.5)]
         score_vulnerabilities(vulns)
         assert vulns[0].risk_score == 0.0
+
+    def test_ml_model_used_when_available(self, tmp_path: Path) -> None:
+        """If a portable model file exists, it should be used."""
+        import flaw.intelligence.scoring as scoring_module
+
+        # Reset cached model
+        scoring_module._cached_model = None
+        scoring_module._model_load_attempted = False
+
+        model_data = {
+            "format": "flaw_xgboost_v1",
+            "features": ["cvss", "epss", "in_kev", "has_exploit"],
+            "n_trees": 1,
+            "trees": [
+                {
+                    "split": 1,  # epss
+                    "split_condition": 0.5,
+                    "children": [
+                        {"leaf": -2.0},
+                        {"leaf": 2.0},
+                    ],
+                }
+            ],
+        }
+        model_file = tmp_path / "model.json"
+        model_file.write_text(json.dumps(model_data))
+
+        with patch.object(scoring_module, "MODEL_PATH", model_file):
+            scoring_module._cached_model = None
+            scoring_module._model_load_attempted = False
+
+            vulns = [
+                _make_vuln(cvss=5.0, epss=0.1),
+                _make_vuln(cvss=5.0, epss=0.9),
+            ]
+            scored = score_vulnerabilities(vulns)
+
+            assert scored[0].risk_score > scored[1].risk_score
+            assert scored[0].epss == 0.9
+
+        # Cleanup
+        scoring_module._cached_model = None
+        scoring_module._model_load_attempted = False
