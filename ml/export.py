@@ -1,4 +1,3 @@
-# export.py
 import json
 import logging
 from pathlib import Path
@@ -121,6 +120,9 @@ def export() -> None:
         "features": features,
         "vendor_vocab": meta.get("vendor_vocab", []),
         "product_vocab": meta.get("product_vocab", []),
+        "cwe_vocab": meta.get("cwe_vocab", []),
+        "desc_vocab": meta.get("desc_vocab", []),
+        "desc_idf": meta.get("desc_idf", []),
         "n_trees": len(trees),
         "trees": trees,
     }

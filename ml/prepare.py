@@ -1,6 +1,6 @@
-# prepare.py
 import csv
 import gzip
+import json
 import logging
 import time
 from pathlib import Path
@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 
 DATA_DIR = Path(__file__).parent / "data"
 OUTPUT_CSV = DATA_DIR / "dataset.csv"
+NVD_RAW_CACHE = DATA_DIR / "nvd_raw.json.gz"
 
 EPSS_URL = "https://epss.cyentia.com/epss_scores-current.csv.gz"
 KEV_URL = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
@@ -40,6 +41,8 @@ FEATURES_LIST = [
     "availability",
     "vendors",
     "products",
+    "cwe",
+    "description",
     "epss",
     "in_kev",
 ]
@@ -71,11 +74,16 @@ def download_kev():
 
 
 def fetch_nvd_data():
+    if NVD_RAW_CACHE.exists():
+        logger.info(f"Found local NVD cache at {NVD_RAW_CACHE}. Loading from disk ...")
+        with gzip.open(NVD_RAW_CACHE, "rt", encoding="utf-8") as f:
+            return json.load(f)
+
     all_vulns = []
     start_index = 0
     results_per_page = 2000
 
-    logger.info("Downloading NVD data...")
+    logger.info("Local NVD cache not found. Downloading from NVD ...")
 
     with httpx.Client(timeout=90) as client:
         while True:
@@ -105,6 +113,11 @@ def fetch_nvd_data():
             except Exception as e:
                 logger.error(f"HTTP Error: {e}")
                 time.sleep(10)
+
+    logger.info(f"Saving raw NVD data to {NVD_RAW_CACHE} ...")
+    with gzip.open(NVD_RAW_CACHE, "wt", encoding="utf-8") as f:
+        json.dump(all_vulns, f)
+
     return all_vulns
 
 
@@ -159,6 +172,21 @@ def extract_features(item):
 
     res["vendors"] = " ".join(vendors)
     res["products"] = " ".join(products)
+
+    cwes = set()
+    for weakness in item.get("cve", {}).get("weaknesses", []):
+        for desc in weakness.get("description", []):
+            val = desc.get("value", "")
+            if val.lower().startswith("cwe"):
+                cwes.add(val.lower())
+    res["cwe"] = " ".join(cwes)
+
+    description = ""
+    for desc in item.get("cve", {}).get("descriptions", []):
+        if desc.get("lang") == "en":
+            description = desc.get("value", "").replace("\n", " ").replace("\r", "")
+            break
+    res["description"] = description
 
     return res
 

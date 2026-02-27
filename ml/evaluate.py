@@ -1,11 +1,10 @@
-# evaluate.py
 import json
 import logging
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import pandas as pd
-from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
 from sklearn.metrics import (
     accuracy_score,
     classification_report,
@@ -54,6 +53,10 @@ def evaluate() -> None:
     all_features = meta["features"]
     vendor_vocab = meta["vendor_vocab"]
     product_vocab = meta["product_vocab"]
+    cwe_vocab = meta.get("cwe_vocab", [])
+    desc_vocab = meta.get("desc_vocab", [])
+    # Note: Loading IDF into TfidfVectorizer manually is tricky in sklearn.
+    # For evaluation visualization, we re-fit. For exact reproduction, one should preserve pickle.
 
     logger.info("Loading dataset and model...")
     df = pd.read_csv(DATASET)
@@ -61,21 +64,33 @@ def evaluate() -> None:
 
     df["vendors"] = df["vendors"].fillna("")
     df["products"] = df["products"].fillna("")
+    df["cwe"] = df["cwe"].fillna("")
+    df["description"] = df["description"].fillna("")
 
     vendor_vec = CountVectorizer(vocabulary=vendor_vocab, binary=True, token_pattern=r"[^\s]+")
     product_vec = CountVectorizer(vocabulary=product_vocab, binary=True, token_pattern=r"[^\s]+")
+    cwe_vec = CountVectorizer(vocabulary=cwe_vocab, binary=True, token_pattern=r"[^\s]+")
+    desc_vec = TfidfVectorizer(
+        vocabulary=desc_vocab, stop_words="english", token_pattern=r"(?u)\b[a-zA-Z]{3,}\b"
+    )
 
     X_vendors = vendor_vec.fit_transform(df["vendors"]).toarray()
     X_products = product_vec.fit_transform(df["products"]).toarray()
+    X_cwe = cwe_vec.fit_transform(df["cwe"]).toarray()
+    X_desc = desc_vec.fit_transform(df["description"]).toarray()
 
     vendor_cols = [f"v_{c}" for c in vendor_vocab]
     product_cols = [f"p_{c}" for c in product_vocab]
+    cwe_cols = [f"{c}" for c in cwe_vocab]
+    desc_cols = [f"txt_{c}" for c in desc_vocab]
 
     X_base_df = df[BASE_FEATURES].reset_index(drop=True)
     X_v_df = pd.DataFrame(X_vendors, columns=vendor_cols)
     X_p_df = pd.DataFrame(X_products, columns=product_cols)
+    X_cwe_df = pd.DataFrame(X_cwe, columns=cwe_cols)
+    X_desc_df = pd.DataFrame(X_desc, columns=desc_cols)
 
-    X = pd.concat([X_base_df, X_v_df, X_p_df], axis=1)
+    X = pd.concat([X_base_df, X_v_df, X_p_df, X_cwe_df, X_desc_df], axis=1)
     y = df[LABEL].reset_index(drop=True)
 
     _, x_test, _, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
@@ -124,10 +139,10 @@ def evaluate() -> None:
 
     plt.figure(figsize=(10, 8))
     importance = model.feature_importances_
-    sorted_idx = importance.argsort()[-30:]
+    sorted_idx = importance.argsort()[-40:]
     plt.barh([all_features[i] for i in sorted_idx], importance[sorted_idx])
     plt.xlabel("Importance")
-    plt.title("Top 30 Feature Importance")
+    plt.title("Top 40 Feature Importance")
     plt.tight_layout()
     plt.savefig(PLOTS_DIR / "feature_importance.png", dpi=150)
     logger.info("Feature importance plot generated: %s", PLOTS_DIR / "feature_importance.png")
