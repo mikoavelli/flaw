@@ -16,7 +16,7 @@ build/
 
 # Project specifics (Local DBs, caches)
 *.db
-*.sqlite3
+*.sqlite*
 .env
 data/models/*.joblib
 

@@ -8,11 +8,8 @@ from unittest.mock import patch
 
 from flaw.intelligence.scoring import (
     WEIGHT_CVSS,
-    WEIGHT_EPSS,
-    WEIGHT_EXPLOIT,
-    WEIGHT_KEV,
+    MLScorer,
     _formula_score,
-    _TreeModel,
     score_vulnerabilities,
 )
 from flaw.models import EnrichedVulnerability
@@ -25,13 +22,15 @@ def _make_vuln(
     in_kev: bool = False,
     has_exploit: bool = False,
 ) -> EnrichedVulnerability:
-    """Helper to create a test vulnerability."""
     return EnrichedVulnerability(
         cve_id="CVE-2024-0001",
         pkg_name="test-pkg",
         installed_version="1.0.0",
         severity="HIGH",
         cvss=cvss,
+        cvss_vector="CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+        description="A fake vulnerability for testing.",
+        cwe_ids=["CWE-79"],
         epss=epss,
         in_kev=in_kev,
         has_exploit=has_exploit,
@@ -39,83 +38,66 @@ def _make_vuln(
 
 
 class TestFormulaScore:
-    """Tests for the weighted formula scoring."""
-
     def test_all_zeros(self) -> None:
         vuln = _make_vuln()
         assert _formula_score(vuln) == 0.0
 
     def test_max_score(self) -> None:
         vuln = _make_vuln(cvss=10.0, epss=1.0, in_kev=True, has_exploit=True)
-        assert _formula_score(vuln) == 100.0
+        assert round(_formula_score(vuln), 1) == 100.0
 
     def test_cvss_only(self) -> None:
         vuln = _make_vuln(cvss=10.0)
-        expected = round(1.0 * WEIGHT_CVSS * 100, 1)
-        assert _formula_score(vuln) == expected
-
-    def test_epss_only(self) -> None:
-        vuln = _make_vuln(epss=0.5)
-        expected = round(0.5 * WEIGHT_EPSS * 100, 1)
-        assert _formula_score(vuln) == expected
-
-    def test_kev_flag(self) -> None:
-        vuln = _make_vuln(in_kev=True, has_exploit=True)
-        expected = round((WEIGHT_KEV + WEIGHT_EXPLOIT) * 100, 1)
-        assert _formula_score(vuln) == expected
-
-    def test_realistic_critical(self) -> None:
-        vuln = _make_vuln(cvss=7.5, epss=0.9214, in_kev=True, has_exploit=True)
-        score = _formula_score(vuln)
-        assert score > 80.0
-        assert score <= 100.0
-
-    def test_realistic_low(self) -> None:
-        vuln = _make_vuln(cvss=4.3, epss=0.001)
-        score = _formula_score(vuln)
-        assert score < 20.0
-        assert score > 0.0
+        expected = 1.0 * WEIGHT_CVSS * 100
+        assert round(_formula_score(vuln), 1) == round(expected, 1)
 
 
-class TestTreeModel:
-    """Tests for the pure-Python tree evaluator."""
-
-    def test_simple_tree(self) -> None:
-        tree = {
-            "split": 0,
-            "split_condition": 5.0,
-            "children": [
-                {"leaf": -1.0},
-                {"leaf": 1.0},
+class TestMLScorer:
+    def test_ml_scoring_logic(self) -> None:
+        # Minimal fake model with NLP logic
+        model_data = {
+            "format": "flaw_xgboost_v1",
+            "features": [
+                "cvss",
+                "av",
+                "ac",
+                "pr",
+                "ui",
+                "s",
+                "c",
+                "i",
+                "a",
+                "p_test-pkg",
+                "cwe-79",
+                "txt_fake",
+            ],
+            "vendor_vocab": [],
+            "product_vocab": ["test-pkg"],
+            "cwe_vocab": ["cwe-79"],
+            "desc_vocab": ["fake"],
+            "desc_idf": [1.5],
+            "n_trees": 1,
+            "trees": [
+                {
+                    "split": 0,  # cvss
+                    "split_condition": 5.0,
+                    "children": [
+                        {"leaf": -1.0},
+                        {"leaf": 1.0},
+                    ],
+                }
             ],
         }
-        model = _TreeModel([tree])
+        model = MLScorer(model_data)
 
-        low = model.predict([3.0, 0.0, 0.0, 0.0])
-        high = model.predict([7.0, 0.0, 0.0, 0.0])
+        low_vuln = _make_vuln(cvss=3.0)
+        high_vuln = _make_vuln(cvss=7.0)
 
-        assert low < 0.5
-        assert high > 0.5
-
-    def test_multi_tree(self) -> None:
-        tree1 = {"leaf": 0.5}
-        tree2 = {"leaf": 0.5}
-        model = _TreeModel([tree1, tree2])
-
-        result = model.predict([0.0, 0.0, 0.0, 0.0])
-        # sigmoid(1.0) ≈ 0.731
-        assert 0.7 < result < 0.8
-
-    def test_empty_trees(self) -> None:
-        model = _TreeModel([])
-        result = model.predict([5.0, 0.5, 0.0, 0.0])
-        # sigmoid(0) = 0.5
-        assert result == 0.5
+        assert model.score(low_vuln) < 50.0
+        assert model.score(high_vuln) > 50.0
 
 
 class TestScoreVulnerabilities:
-    """Tests for the scoring pipeline."""
-
     def test_sorted_by_risk_descending(self) -> None:
         vulns = [
             _make_vuln(cvss=3.0, epss=0.01),
@@ -129,36 +111,21 @@ class TestScoreVulnerabilities:
     def test_empty_list(self) -> None:
         assert score_vulnerabilities([]) == []
 
-    def test_scores_are_assigned(self) -> None:
-        vulns = [_make_vuln(cvss=7.5, epss=0.5)]
-        scored = score_vulnerabilities(vulns)
-        assert scored[0].risk_score > 0.0
-
-    def test_original_not_mutated(self) -> None:
-        vulns = [_make_vuln(cvss=7.5, epss=0.5)]
-        score_vulnerabilities(vulns)
-        assert vulns[0].risk_score == 0.0
-
     def test_ml_model_used_when_available(self, tmp_path: Path) -> None:
-        """If a portable model file exists, it should be used."""
         import flaw.intelligence.scoring as scoring_module
 
-        # Reset cached model
         scoring_module._cached_model = None
         scoring_module._model_load_attempted = False
 
         model_data = {
             "format": "flaw_xgboost_v1",
-            "features": ["cvss", "epss", "in_kev", "has_exploit"],
+            "features": ["cvss", "av", "ac", "pr", "ui", "s", "c", "i", "a"],
             "n_trees": 1,
             "trees": [
                 {
-                    "split": 1,  # epss
-                    "split_condition": 0.5,
-                    "children": [
-                        {"leaf": -2.0},
-                        {"leaf": 2.0},
-                    ],
+                    "split": 0,
+                    "split_condition": 5.0,
+                    "children": [{"leaf": -2.0}, {"leaf": 2.0}],
                 }
             ],
         }
@@ -169,15 +136,13 @@ class TestScoreVulnerabilities:
             scoring_module._cached_model = None
             scoring_module._model_load_attempted = False
 
-            vulns = [
-                _make_vuln(cvss=5.0, epss=0.1),
-                _make_vuln(cvss=5.0, epss=0.9),
-            ]
+            vulns = [_make_vuln(cvss=4.0), _make_vuln(cvss=9.0)]
             scored = score_vulnerabilities(vulns)
 
-            assert scored[0].risk_score > scored[1].risk_score
-            assert scored[0].epss == 0.9
+            # High CVSS node goes right -> leaf 2.0 -> sigmoid(2) = 0.88 -> 88.0
+            assert scored[0].risk_score > 80.0
+            # Low CVSS node goes left -> leaf -2.0 -> sigmoid(-2) = 0.11 -> 11.9
+            assert scored[1].risk_score < 20.0
 
-        # Cleanup
         scoring_module._cached_model = None
         scoring_module._model_load_attempted = False

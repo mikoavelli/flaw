@@ -20,16 +20,6 @@ def enrich(
     offline: bool = False,
     force_refresh: bool = False,
 ) -> list[EnrichedVulnerability]:
-    """
-    Enrich raw Trivy vulnerabilities with EPSS scores and KEV flags.
-
-    Args:
-        conn: SQLite connection to cache database.
-        vulnerabilities: Raw vulnerabilities from Trivy scan.
-        cache_dir: Path for temporary download files.
-        offline: If True, use cached data only (no downloads).
-        force_refresh: If True, re-download regardless of TTL.
-    """
     if not vulnerabilities:
         return []
 
@@ -68,6 +58,9 @@ def enrich(
                 fixed_version=v.fixed_version,
                 severity=v.severity,
                 cvss=v.cvss,
+                cvss_vector=v.cvss_vector,
+                description=v.description,
+                cwe_ids=v.cwe_ids,
                 epss=epss_scores.get(v.cve_id, 0.0),
                 in_kev=v.cve_id in kev_set,
                 has_exploit=v.cve_id in kev_set,
