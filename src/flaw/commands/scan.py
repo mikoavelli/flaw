@@ -12,6 +12,7 @@ from flaw.core.state import get_flags
 from flaw.models import ScanReport
 from flaw.pipeline import run_scan
 from flaw.report.json_fmt import write_scan_report
+from flaw.report.sarif_fmt import write_scan_sarif_report
 from flaw.report.terminal import print_scan_report, stderr
 from flaw.scanner.trivy import ScannerError
 
@@ -25,9 +26,11 @@ def _apply_top(report: ScanReport, top: int | None) -> ScanReport:
 
 def scan_command(
     image: Annotated[str, typer.Argument(help="Container image to scan (e.g., nginx:1.24)")],
-    format_: Annotated[str, typer.Option("--format", "-f", help="Output format")] = "table",
+    format_: Annotated[
+        str, typer.Option("--format", "-f", help="Output format: table, json, sarif")
+    ] = "table",
     output: Annotated[
-        Path | None, typer.Option("--output", "-o", help="Write JSON report to file")
+        Path | None, typer.Option("--output", "-o", help="Write JSON/SARIF report to file")
     ] = None,
     threshold: Annotated[
         float | None,
@@ -62,6 +65,8 @@ def scan_command(
 
     if format_ == "json":
         write_scan_report(report, output=output)
+    elif format_ == "sarif":
+        write_scan_sarif_report(report, output=output)
     else:
         if not flags.quiet:
             print_scan_report(report)

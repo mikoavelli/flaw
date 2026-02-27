@@ -12,6 +12,7 @@ from flaw.models import (
     ScanReport,
 )
 from flaw.report.json_fmt import write_lint_report, write_scan_report
+from flaw.report.sarif_fmt import write_lint_sarif_report, write_scan_sarif_report
 from flaw.report.terminal import print_lint_report, print_scan_report
 
 
@@ -162,3 +163,67 @@ class TestJSONReport:
         data = json.loads(out.read_text())
         assert len(data["dockerfile_issues"]) == 1
         assert data["dockerfile_issues"][0]["id"] == "DF-001"
+
+
+class TestSARIFReport:
+    """Tests for SARIF report output."""
+
+    def test_write_scan_sarif_report_to_file(self, tmp_path: Path) -> None:
+        report = _make_report(with_issues=True)
+        out = tmp_path / "report.sarif"
+
+        write_scan_sarif_report(report, output=out)
+
+        data = json.loads(out.read_text())
+        assert data["$schema"].endswith("sarif-2.1.0.json")
+        assert data["version"] == "2.1.0"
+
+        runs = data["runs"]
+        assert len(runs) == 1
+        assert runs[0]["tool"]["driver"]["name"] == "flaw"
+
+        # We have 2 vulns + 1 dockerfile issue = 3 results
+        assert len(runs[0]["results"]) == 3
+        # And 3 distinct rules
+        assert len(runs[0]["tool"]["driver"]["rules"]) == 3
+
+    def test_write_scan_sarif_report_to_stdout(self, capsys: object) -> None:
+        report = _make_report()
+        write_scan_sarif_report(report)
+
+        captured = capsys.readouterr()  # type: ignore[attr-defined]
+        data = json.loads(captured.out)
+        assert data["version"] == "2.1.0"
+
+    def test_write_lint_sarif_report_to_file(self, tmp_path: Path) -> None:
+        issues = [
+            DockerfileIssue(
+                id="DF-001",
+                severity="HIGH",
+                description="No USER directive",
+                line=5,
+            ),
+        ]
+        out = tmp_path / "lint.sarif"
+
+        write_lint_sarif_report(issues, "Dockerfile", output=out)
+
+        data = json.loads(out.read_text())
+        runs = data["runs"]
+        assert len(runs[0]["results"]) == 1
+        assert runs[0]["results"][0]["ruleId"] == "DF-001"
+        assert runs[0]["results"][0]["locations"][0]["physicalLocation"]["region"]["startLine"] == 5
+
+    def test_write_lint_sarif_report_to_stdout(self, capsys: object) -> None:
+        issues = [
+            DockerfileIssue(
+                id="DF-001",
+                severity="HIGH",
+                description="No USER directive",
+            ),
+        ]
+        write_lint_sarif_report(issues, "Dockerfile")
+
+        captured = capsys.readouterr()  # type: ignore[attr-defined]
+        data = json.loads(captured.out)
+        assert len(data["runs"][0]["results"]) == 1

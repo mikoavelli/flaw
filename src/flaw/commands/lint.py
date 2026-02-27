@@ -9,15 +9,18 @@ import typer
 
 from flaw.core.state import get_flags
 from flaw.report.json_fmt import write_lint_report
+from flaw.report.sarif_fmt import write_lint_sarif_report
 from flaw.report.terminal import print_lint_report, stderr
 from flaw.scanner.dockerfile import DockerfileLintError, lint
 
 
 def lint_command(
     path: Annotated[Path, typer.Argument(help="Path to Dockerfile")] = Path("Dockerfile"),
-    format_: Annotated[str, typer.Option("--format", "-f", help="Output format")] = "table",
+    format_: Annotated[
+        str, typer.Option("--format", "-f", help="Output format: table, json, sarif")
+    ] = "table",
     output: Annotated[
-        Path | None, typer.Option("--output", "-o", help="Write JSON report to file")
+        Path | None, typer.Option("--output", "-o", help="Write JSON/SARIF report to file")
     ] = None,
     ci: Annotated[
         bool, typer.Option("--ci", help="Exit code 1 if any HIGH severity issue found")
@@ -37,6 +40,8 @@ def lint_command(
 
     if format_ == "json":
         write_lint_report(issues, path_str, output=output)
+    elif format_ == "sarif":
+        write_lint_sarif_report(issues, path_str, output=output)
     else:
         if not flags.quiet:
             print_lint_report(issues, path_str)
