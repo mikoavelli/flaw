@@ -15,7 +15,6 @@ def setup_logging(*, verbose: bool = False, quiet: bool = False) -> None:
     else:
         level = logging.WARNING
 
-    # Remove any existing handlers to avoid duplicates
     root = logging.getLogger()
     for handler in root.handlers[:]:
         root.removeHandler(handler)
@@ -29,6 +28,5 @@ def setup_logging(*, verbose: bool = False, quiet: bool = False) -> None:
     flaw_logger.setLevel(level)
     flaw_logger.propagate = False
 
-    # Suppress third-party loggers
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)

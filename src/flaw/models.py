@@ -57,10 +57,16 @@ class Vulnerability(BaseModel):
         data["cvss_vector"] = vector
 
         pkg_id = data.get("PkgIdentifier")
+        purl = ""
+
         if isinstance(pkg_id, dict) and "PURL" in pkg_id:
-            data["purl"] = pkg_id["PURL"]
+            purl = pkg_id["PURL"]
+        elif isinstance(pkg_id, str):
+            purl = pkg_id
         elif "PURL" in data:
-            data["purl"] = data["PURL"]
+            purl = data["PURL"]
+
+        data["purl"] = purl
 
         return data
 

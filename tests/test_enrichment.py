@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 from flaw.intelligence.db import get_connection
 from flaw.intelligence.enrichment import enrich
+from flaw.intelligence.epss import EPSSError
+from flaw.intelligence.kev import KEVError
 from flaw.models import Vulnerability
 
 
@@ -62,24 +65,35 @@ class TestEnrich:
             "INSERT INTO epss_scores (cve, score) VALUES (?, ?)",
             ("CVE-2023-44487", 0.9214),
         )
-        conn.execute(
-            "INSERT INTO kev_entries (cve) VALUES (?)",
-            ("CVE-2023-44487",),
-        )
-        conn.execute(
-            "INSERT INTO metadata (key, value) VALUES (?, ?)",
-            ("epss_updated_at", "9999999999"),
-        )
-        conn.execute(
-            "INSERT INTO metadata (key, value) VALUES (?, ?)",
-            ("kev_updated_at", "9999999999"),
-        )
+        conn.execute("INSERT INTO kev_entries (cve) VALUES (?)", ("CVE-2023-44487",))
         conn.commit()
 
         vulns = [_make_raw_vuln("CVE-2023-44487")]
-        enriched = enrich(conn, vulns, tmp_path, offline=False)
+        enriched = enrich(conn, vulns, tmp_path, offline=True)
 
         assert enriched[0].epss == 0.9214
         assert enriched[0].in_kev is True
         assert enriched[0].has_exploit is True
+        conn.close()
+
+    @patch("flaw.intelligence.enrichment.epss.update")
+    @patch("flaw.intelligence.enrichment.kev.update")
+    def test_enrich_force_refresh(
+        self, mock_kev: MagicMock, mock_epss: MagicMock, tmp_path: Path
+    ) -> None:
+        conn = get_connection(tmp_path / "test.db")
+        vulns = [_make_raw_vuln()]
+        enrich(conn, vulns, tmp_path, force_refresh=True)
+        mock_epss.assert_called_once()
+        mock_kev.assert_called_once()
+        conn.close()
+
+    @patch("flaw.intelligence.enrichment.epss.update", side_effect=EPSSError("fail"))
+    @patch("flaw.intelligence.enrichment.kev.update", side_effect=KEVError("fail"))
+    def test_enrich_force_refresh_errors(
+        self, mock_kev: MagicMock, mock_epss: MagicMock, tmp_path: Path
+    ) -> None:
+        conn = get_connection(tmp_path / "test.db")
+        vulns = [_make_raw_vuln()]
+        enrich(conn, vulns, tmp_path, force_refresh=True)
         conn.close()

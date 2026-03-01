@@ -57,7 +57,6 @@ def write_scan_sarif_report(report: ScanReport, *, output: Path | None = None) -
     results: list[dict[str, Any]] = []
     rule_ids = set()
 
-    # 1. Process Container Vulnerabilities
     for vuln in report.vulnerabilities:
         if vuln.cve_id not in rule_ids:
             rule_ids.add(vuln.cve_id)
@@ -92,7 +91,6 @@ def write_scan_sarif_report(report: ScanReport, *, output: Path | None = None) -
             }
         )
 
-    # 2. Process Dockerfile Issues (if any)
     for issue in report.dockerfile_issues or []:
         if issue.id not in rule_ids:
             rule_ids.add(issue.id)

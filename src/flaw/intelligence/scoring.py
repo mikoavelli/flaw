@@ -61,13 +61,13 @@ def _parse_purl(purl: str) -> tuple[str, str]:
         clean_purl = purl[4:].split("@")[0].split("?")[0]
         parts = clean_purl.split("/")
 
-        if len(parts) >= 3:
-            return parts[1], parts[2]
+        product = parts[-1]
+        vendor = ""
 
-        if len(parts) == 2:
-            return parts[0], parts[1]
+        if len(parts) >= 2:
+            vendor = parts[-2]
 
-        return "", parts[-1]
+        return vendor, product
     except Exception:
         return "", ""
 

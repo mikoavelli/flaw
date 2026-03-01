@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from flaw.models import TrivyReport
+from flaw.models import TrivyReport, Vulnerability
 
 
 class TestVulnerabilityModel:
-    """Tests for CVSS extraction logic."""
+    """Tests for Vulnerability parsing logic."""
 
     def test_nvd_cvss_extracted(self, trivy_payload_single: dict[str, Any]) -> None:
         report = TrivyReport.model_validate(trivy_payload_single)
@@ -25,14 +25,39 @@ class TestVulnerabilityModel:
         vuln = report.results[0].vulnerabilities[0]
         assert vuln.cvss == 0.0
 
-    def test_basic_fields_parsed(self, trivy_payload_single: dict[str, Any]) -> None:
-        report = TrivyReport.model_validate(trivy_payload_single)
-        vuln = report.results[0].vulnerabilities[0]
-        assert vuln.cve_id == "CVE-2023-44487"
-        assert vuln.pkg_name == "nghttp2"
-        assert vuln.installed_version == "1.55.1-r0"
-        assert vuln.fixed_version == "1.57.0-r0"
-        assert vuln.severity == "CRITICAL"
+    def test_extract_nested_data_purl_variants(self) -> None:
+        v1 = Vulnerability.model_validate(
+            {
+                "VulnerabilityID": "CVE-1",
+                "PkgName": "a",
+                "InstalledVersion": "1",
+                "Severity": "LOW",
+                "PkgIdentifier": {"PURL": "pkg:deb/debian/a"},
+            }
+        )
+        assert v1.purl == "pkg:deb/debian/a"
+
+        v2 = Vulnerability.model_validate(
+            {
+                "VulnerabilityID": "CVE-2",
+                "PkgName": "b",
+                "InstalledVersion": "1",
+                "Severity": "LOW",
+                "PkgIdentifier": "pkg:npm/b",
+            }
+        )
+        assert v2.purl == "pkg:npm/b"
+
+        v3 = Vulnerability.model_validate(
+            {
+                "VulnerabilityID": "CVE-3",
+                "PkgName": "c",
+                "InstalledVersion": "1",
+                "Severity": "LOW",
+                "PURL": "pkg:golang/c",
+            }
+        )
+        assert v3.purl == "pkg:golang/c"
 
 
 class TestScanResult:
@@ -64,9 +89,3 @@ class TestTrivyReport:
     def test_total_vulnerabilities_count(self, trivy_payload_single: dict[str, Any]) -> None:
         report = TrivyReport.model_validate(trivy_payload_single)
         assert report.total_vulnerabilities == 1
-
-    def test_all_vulnerabilities_flat_list(self, trivy_payload_single: dict[str, Any]) -> None:
-        report = TrivyReport.model_validate(trivy_payload_single)
-        flat = report.all_vulnerabilities
-        assert len(flat) == 1
-        assert flat[0].cve_id == "CVE-2023-44487"

@@ -57,10 +57,8 @@ def run_scan(
 
     start = time.monotonic()
 
-    # 0. Resolve image source
     source = resolve_image_source(image)
 
-    # 1. Scan
     logger.debug("Starting Trivy scan: %s", image)
     trivy_report = scan_image(
         image,
@@ -70,7 +68,6 @@ def run_scan(
     raw_vulns = trivy_report.all_vulnerabilities
     logger.debug("Trivy found %d vulnerabilities", len(raw_vulns))
 
-    # 2. Enrich
     conn = get_connection()
     try:
         enriched = enrich(
@@ -83,14 +80,12 @@ def run_scan(
     finally:
         conn.close()
 
-    # 3. Score and sort
     scored = score_vulnerabilities(enriched)
     logger.debug(
         "Scoring complete, max risk: %.1f",
         max((v.risk_score for v in scored), default=0.0),
     )
 
-    # 4. Dockerfile lint (optional)
     dockerfile_issues: list[DockerfileIssue] | None = None
     if dockerfile is not None:
         try:
@@ -99,7 +94,6 @@ def run_scan(
         except DockerfileLintError as e:
             logger.warning("Dockerfile analysis failed: %s", e)
 
-    # 5. Build report
     duration = round(time.monotonic() - start, 1)
     summary = _build_summary(scored)
 

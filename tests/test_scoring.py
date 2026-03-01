@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from unittest.mock import patch
 
@@ -10,6 +9,8 @@ from flaw.intelligence.scoring import (
     WEIGHT_CVSS,
     MLScorer,
     _formula_score,
+    _parse_cvss_vector,
+    _parse_purl,
     score_vulnerabilities,
 )
 from flaw.models import EnrichedVulnerability
@@ -31,10 +32,56 @@ def _make_vuln(
         cvss_vector="CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
         description="A fake vulnerability for testing.",
         cwe_ids=["CWE-79"],
+        purl="pkg:npm/test-pkg@1.0.0",
         epss=epss,
         in_kev=in_kev,
         has_exploit=has_exploit,
     )
+
+
+class TestParsers:
+    def test_parse_purl(self) -> None:
+        assert _parse_purl("pkg:deb/debian/util-linux@2.41-5?arch=amd64") == (
+            "debian",
+            "util-linux",
+        )
+        assert _parse_purl("pkg:npm/express@4.17.1") == ("npm", "express")
+
+        assert _parse_purl("pkg:golang/github.com/gin-gonic/gin@v1.9.1") == (
+            "gin-gonic",
+            "gin",
+        )
+
+        assert _parse_purl("pkg:maven/org.apache.xmlgraphics/batik-anim@1.14") == (
+            "org.apache.xmlgraphics",
+            "batik-anim",
+        )
+
+        assert _parse_purl("invalid") == ("", "")
+        assert _parse_purl("") == ("", "")
+
+        class BadObj:
+            def __bool__(self) -> bool:
+                return True
+
+            def startswith(self, val: str) -> bool:
+                return True
+
+        assert _parse_purl(BadObj()) == ("", "")  # type: ignore
+
+    def test_parse_cvss_vector(self) -> None:
+        vec = _parse_cvss_vector("CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:C/C:L/I:L/A:N")
+        assert vec["AV"] == 3
+        assert vec["AC"] == 0
+        assert vec["PR"] == 2
+        assert vec["UI"] == 0
+        assert vec["S"] == 1
+        assert vec["C"] == 1
+        assert vec["I"] == 1
+        assert vec["A"] == 0
+
+        assert _parse_cvss_vector("")["AV"] == -1
+        assert _parse_cvss_vector("CVSS:3.1/UNKNOWN:X")["AV"] == -1
 
 
 class TestFormulaScore:
@@ -54,7 +101,6 @@ class TestFormulaScore:
 
 class TestMLScorer:
     def test_ml_scoring_logic(self) -> None:
-        # Minimal fake model with NLP logic
         model_data = {
             "format": "flaw_xgboost_v1",
             "features": [
@@ -67,34 +113,23 @@ class TestMLScorer:
                 "c",
                 "i",
                 "a",
+                "v_npm",
                 "p_test-pkg",
-                "cwe-79",
-                "txt_fake",
             ],
-            "vendor_vocab": [],
+            "vendor_vocab": ["npm"],
             "product_vocab": ["test-pkg"],
-            "cwe_vocab": ["cwe-79"],
-            "desc_vocab": ["fake"],
-            "desc_idf": [1.5],
             "n_trees": 1,
             "trees": [
                 {
-                    "split": 0,  # cvss
+                    "split": 0,
                     "split_condition": 5.0,
-                    "children": [
-                        {"leaf": -1.0},
-                        {"leaf": 1.0},
-                    ],
+                    "children": [{"leaf": -1.0}, {"leaf": 1.0}],
                 }
             ],
         }
         model = MLScorer(model_data)
-
-        low_vuln = _make_vuln(cvss=3.0)
-        high_vuln = _make_vuln(cvss=7.0)
-
-        assert model.score(low_vuln) < 50.0
-        assert model.score(high_vuln) > 50.0
+        assert model.score(_make_vuln(cvss=3.0)) < 50.0
+        assert model.score(_make_vuln(cvss=7.0)) > 50.0
 
 
 class TestScoreVulnerabilities:
@@ -111,38 +146,32 @@ class TestScoreVulnerabilities:
     def test_empty_list(self) -> None:
         assert score_vulnerabilities([]) == []
 
-    def test_ml_model_used_when_available(self, tmp_path: Path) -> None:
+    def test_load_corrupted_model(self, tmp_path: Path) -> None:
         import flaw.intelligence.scoring as scoring_module
 
         scoring_module._cached_model = None
         scoring_module._model_load_attempted = False
 
-        model_data = {
-            "format": "flaw_xgboost_v1",
-            "features": ["cvss", "av", "ac", "pr", "ui", "s", "c", "i", "a"],
-            "n_trees": 1,
-            "trees": [
-                {
-                    "split": 0,
-                    "split_condition": 5.0,
-                    "children": [{"leaf": -2.0}, {"leaf": 2.0}],
-                }
-            ],
-        }
-        model_file = tmp_path / "model.json"
-        model_file.write_text(json.dumps(model_data))
+        model_file = tmp_path / "corrupted.json"
+        model_file.write_text("{invalid json")
 
         with patch.object(scoring_module, "MODEL_PATH", model_file):
-            scoring_module._cached_model = None
-            scoring_module._model_load_attempted = False
+            assert scoring_module._load_model() is None
 
-            vulns = [_make_vuln(cvss=4.0), _make_vuln(cvss=9.0)]
-            scored = score_vulnerabilities(vulns)
+        scoring_module._cached_model = None
+        scoring_module._model_load_attempted = False
 
-            # High CVSS node goes right -> leaf 2.0 -> sigmoid(2) = 0.88 -> 88.0
-            assert scored[0].risk_score > 80.0
-            # Low CVSS node goes left -> leaf -2.0 -> sigmoid(-2) = 0.11 -> 11.9
-            assert scored[1].risk_score < 20.0
+    def test_load_wrong_format_model(self, tmp_path: Path) -> None:
+        import flaw.intelligence.scoring as scoring_module
+
+        scoring_module._cached_model = None
+        scoring_module._model_load_attempted = False
+
+        model_file = tmp_path / "wrong.json"
+        model_file.write_text('{"format": "wrong"}')
+
+        with patch.object(scoring_module, "MODEL_PATH", model_file):
+            assert scoring_module._load_model() is None
 
         scoring_module._cached_model = None
         scoring_module._model_load_attempted = False

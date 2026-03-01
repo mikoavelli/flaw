@@ -55,7 +55,6 @@ def train():
     product_vec = CountVectorizer(max_features=100, binary=True, token_pattern=r"[^\s]+")
     cwe_vec = CountVectorizer(max_features=50, binary=True, token_pattern=r"[^\s]+")
 
-    # TF-IDF for descriptions to capture terms like "RCE", "overflow", "unauthenticated"
     desc_vec = TfidfVectorizer(
         max_features=100, stop_words="english", token_pattern=r"(?u)\b[a-zA-Z]{3,}\b"
     )

@@ -55,8 +55,6 @@ def evaluate() -> None:
     product_vocab = meta["product_vocab"]
     cwe_vocab = meta.get("cwe_vocab", [])
     desc_vocab = meta.get("desc_vocab", [])
-    # Note: Loading IDF into TfidfVectorizer manually is tricky in sklearn.
-    # For evaluation visualization, we re-fit. For exact reproduction, one should preserve pickle.
 
     logger.info("Loading dataset and model...")
     df = pd.read_csv(DATASET)

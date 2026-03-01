@@ -10,7 +10,6 @@ from flaw.models import DockerfileIssue, EnrichedVulnerability, ScanReport
 
 stderr = Console(stderr=True)
 
-# Severity → Rich color
 _SEV_COLORS: dict[str, str] = {
     "CRITICAL": "bold red",
     "HIGH": "red",
@@ -31,7 +30,6 @@ def print_scan_report(
     top: int | None = None,
 ) -> None:
     """Render a full scan report to stderr."""
-    # ── Header panel ──
     header = (
         f"[bold]Flaw[/bold] — {report.image}\n"
         f"Scanned in {report.duration_seconds:.1f}s"
@@ -40,14 +38,12 @@ def print_scan_report(
     )
     stderr.print(Panel(header, expand=False))
 
-    # ── Warning banner ──
     if report.summary.critical > 0:
         stderr.print(
             f"\n [bold red]⚠  WARNING: {report.summary.critical}"
             f" CRITICAL vulnerabilities detected![/bold red]"
         )
 
-    # ── Vulnerability table ──
     vulns = report.vulnerabilities
     if top is not None:
         vulns = vulns[:top]
@@ -57,11 +53,9 @@ def print_scan_report(
     else:
         stderr.print("\n [green]No vulnerabilities found.[/green]\n")
 
-    # ── Dockerfile issues ──
     if report.dockerfile_issues is not None:
         _print_dockerfile_issues(report.dockerfile_issues)
 
-    # ── Summary ──
     _print_summary(report)
 
 

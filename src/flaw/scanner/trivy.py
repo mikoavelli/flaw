@@ -27,8 +27,6 @@ def _parse_error(stderr_text: str, image_ref: str) -> str:
             "  Start the podman socket: systemctl --user start podman.socket"
         )
 
-    # Check "unable to find" BEFORE "unauthorized" —
-    # Trivy reports both when image doesn't exist at all
     if "unable to find" in lower:
         return f"Image '{image_ref}' not found locally or in any remote registry."
 

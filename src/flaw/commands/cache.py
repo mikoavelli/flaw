@@ -59,7 +59,7 @@ def status() -> None:
 
     if not DB_PATH.exists():
         stderr.print("[yellow]No cache database found. Run `flaw cache update`.[/yellow]")
-        raise typer.Exit()
+        raise typer.Exit(code=1)
 
     conn = get_connection()
 
