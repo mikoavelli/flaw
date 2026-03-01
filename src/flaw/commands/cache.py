@@ -10,6 +10,8 @@ from rich.table import Table
 from flaw.core.paths import CACHE_DIR, DATA_DIR, ensure_dirs
 from flaw.core.state import get_flags
 from flaw.intelligence import epss, kev
+from flaw.intelligence.model_manager import ensure_model
+from flaw.scanner.installer import ensure_trivy, InstallerError
 from flaw.intelligence.db import (
     DB_PATH,
     clear_all,
@@ -19,12 +21,13 @@ from flaw.intelligence.db import (
 )
 from flaw.report.terminal import stderr
 
+
 cache_app = typer.Typer(help="Manage local vulnerability databases.")
 
 
 @cache_app.command()
 def update() -> None:
-    """Download or refresh EPSS and KEV databases."""
+    """Download or refresh EPSS, KEV, ML Model, and Scanner."""
     flags = get_flags()
 
     if flags.offline:
@@ -42,12 +45,27 @@ def update() -> None:
         except epss.EPSSError as e:
             stderr.print(f"[red]failed[/red] ({e})")
 
-        stderr.print("Updating KEV catalog...", end="  ")
+        stderr.print("Updating KEV catalog...", end="   ")
         try:
             count = kev.update(conn, CACHE_DIR)
             stderr.print(f"[green]done[/green] ({count:,} entries)")
         except kev.KEVError as e:
             stderr.print(f"[red]failed[/red] ({e})")
+
+        stderr.print("Updating ML Model...", end="      ")
+        model_path = ensure_model(force=True)
+        if model_path:
+            stderr.print("[green]done[/green]")
+        else:
+            stderr.print("[red]failed[/red]")
+
+        stderr.print("Checking Trivy Engine...", end="  ")
+        try:
+            bin_path = ensure_trivy()
+            stderr.print(f"[green]done[/green]")
+        except InstallerError as e:
+            stderr.print(f"[red]failed[/red] ({e})")
+
     finally:
         conn.close()
 

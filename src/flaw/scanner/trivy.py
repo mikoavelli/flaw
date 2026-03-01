@@ -7,6 +7,7 @@ import logging
 import subprocess
 
 from flaw.models import TrivyReport
+from flaw.scanner.installer import InstallerError, ensure_trivy
 
 logger = logging.getLogger("flaw")
 
@@ -50,19 +51,16 @@ def scan_image(
     *,
     timeout: int = TRIVY_TIMEOUT,
     image_src: str | None = None,
+    offline: bool = False,
 ) -> TrivyReport:
-    """
-    Run Trivy against a container image and return parsed results.
+    """Run Trivy against a container image and return parsed results."""
 
-    Args:
-        image_ref: Image reference (e.g., 'nginx:1.24').
-        timeout: Maximum seconds to wait for Trivy.
-        image_src: Force Trivy to use specific image source.
+    try:
+        trivy_bin = ensure_trivy(offline=offline)
+    except InstallerError as e:
+        raise ScannerError(str(e)) from e
 
-    Raises:
-        ScannerError: On any failure.
-    """
-    cmd = ["trivy", "image", "--format", "json", "--quiet"]
+    cmd =[trivy_bin, "image", "--format", "json", "--quiet"]
 
     if image_src and image_src != "unknown":
         cmd.extend(["--image-src", image_src])
@@ -79,9 +77,7 @@ def scan_image(
             timeout=timeout,
         )
     except FileNotFoundError as e:
-        raise ScannerError(
-            "Trivy is not installed. Install it from https://github.com/aquasecurity/trivy"
-        ) from e
+        raise ScannerError("Failed to execute Trivy binary.") from e
     except subprocess.TimeoutExpired as e:
         raise ScannerError(f"Trivy scan timed out after {timeout}s for '{image_ref}'.") from e
 
