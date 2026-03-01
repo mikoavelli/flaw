@@ -18,10 +18,10 @@ class Vulnerability(BaseModel):
     fixed_version: str = Field(default="", alias="FixedVersion")
     severity: str = Field(alias="Severity")
 
-    # New fields for ML Context
     description: str = Field(default="", alias="Description")
     cwe_ids: list[str] = Field(default_factory=list, alias="CweIDs")
 
+    purl: str = Field(default="", alias="PURL")
     cvss: float = 0.0
     cvss_vector: str = ""
 
@@ -34,8 +34,8 @@ class Vulnerability(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def extract_cvss(cls, data: Any) -> Any:
-        """Extract best available CVSS v3 score and vector from Trivy."""
+    def extract_nested_data(cls, data: Any) -> Any:
+        """Extract CVSS scores and PURL from nested Trivy objects."""
         if not isinstance(data, dict):
             return data
 
@@ -43,7 +43,6 @@ class Vulnerability(BaseModel):
         score = 0.0
         vector = ""
 
-        # Priority: NVD first, then any other source
         if "nvd" in cvss_map:
             score = cvss_map["nvd"].get("V3Score", 0.0) or 0.0
             vector = cvss_map["nvd"].get("V3Vector", "") or ""
@@ -56,6 +55,13 @@ class Vulnerability(BaseModel):
 
         data["cvss"] = score
         data["cvss_vector"] = vector
+
+        pkg_id = data.get("PkgIdentifier")
+        if isinstance(pkg_id, dict) and "PURL" in pkg_id:
+            data["purl"] = pkg_id["PURL"]
+        elif "PURL" in data:
+            data["purl"] = data["PURL"]
+
         return data
 
 
@@ -110,6 +116,7 @@ class EnrichedVulnerability(BaseModel):
     cvss_vector: str = ""
     description: str = ""
     cwe_ids: list[str] = Field(default_factory=list)
+    purl: str = ""
 
     epss: float = 0.0
     in_kev: bool = False
@@ -148,4 +155,4 @@ class ScanReport(BaseModel):
     runtime: str = "unknown"
     summary: ReportSummary = Field(default_factory=ReportSummary)
     vulnerabilities: list[EnrichedVulnerability] = Field(default_factory=list)
-    dockerfile_issues: list[DockerfileIssue] = Field(default_factory=list)
+    dockerfile_issues: list[DockerfileIssue] | None = None

@@ -46,6 +46,32 @@ def _parse_cvss_vector(vector: str) -> dict[str, int]:
     return p
 
 
+def _parse_purl(purl: str) -> tuple[str, str]:
+    """
+    Extracts vendor/namespace and product from a Package URL.
+
+    Examples:
+      pkg:deb/debian/util-linux@2.41 -> vendor='debian', product='util-linux'
+      pkg:npm/express@4.17 -> vendor='npm', product='express'
+      pkg:golang/github.com/gin-gonic/gin -> vendor='gin-gonic', product='gin'
+    """
+    if not purl or not purl.startswith("pkg:"):
+        return "", ""
+    try:
+        clean_purl = purl[4:].split("@")[0].split("?")[0]
+        parts = clean_purl.split("/")
+
+        if len(parts) >= 3:
+            return parts[1], parts[2]
+
+        if len(parts) == 2:
+            return parts[0], parts[1]
+
+        return "", parts[-1]
+    except Exception:
+        return "", ""
+
+
 def _formula_score(vuln: EnrichedVulnerability) -> float:
     """Compute fallback risk score using the weighted formula."""
     score = (
@@ -88,9 +114,11 @@ class MLScorer:
         """Compute the ML exploitation probability (0-100)."""
         vec = _parse_cvss_vector(vuln.cvss_vector)
 
-        # We use package name as product proxy if specific CPE vendor isn't provided by scanner
-        vendors_str = ""
-        products_str = vuln.pkg_name
+        purl_vendor, purl_product = _parse_purl(vuln.purl)
+
+        vendors_str = purl_vendor if purl_vendor else "unknown"
+        products_str = purl_product if purl_product else vuln.pkg_name
+
         cwe_str = " ".join(vuln.cwe_ids)
 
         fv = [0.0] * len(self.features)
@@ -208,8 +236,6 @@ def score_vulnerabilities(
     for vuln in vulnerabilities:
         if model:
             score = model.score(vuln)
-            # If the vulnerability is confirmed in KEV, it's inherently a high risk.
-            # We trust the model, but we set a floor to be safe in critical scenarios.
             if vuln.in_kev:
                 score = max(score, 90.0)
         else:

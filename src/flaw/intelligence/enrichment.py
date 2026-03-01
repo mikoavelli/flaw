@@ -20,6 +20,7 @@ def enrich(
     offline: bool = False,
     force_refresh: bool = False,
 ) -> list[EnrichedVulnerability]:
+    """Enrich raw Trivy vulnerabilities with EPSS scores and KEV flags."""
     if not vulnerabilities:
         return []
 
@@ -61,6 +62,7 @@ def enrich(
                 cvss_vector=v.cvss_vector,
                 description=v.description,
                 cwe_ids=v.cwe_ids,
+                purl=v.purl,
                 epss=epss_scores.get(v.cve_id, 0.0),
                 in_kev=v.cve_id in kev_set,
                 has_exploit=v.cve_id in kev_set,

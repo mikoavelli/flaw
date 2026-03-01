@@ -91,7 +91,7 @@ def run_scan(
     )
 
     # 4. Dockerfile lint (optional)
-    dockerfile_issues: list[DockerfileIssue] = []
+    dockerfile_issues: list[DockerfileIssue] | None = None
     if dockerfile is not None:
         try:
             dockerfile_issues = lint(dockerfile)

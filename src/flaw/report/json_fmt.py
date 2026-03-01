@@ -19,7 +19,7 @@ def write_scan_report(
     output: Path | None = None,
 ) -> None:
     """Write scan report as JSON."""
-    data = report.model_dump(mode="json")
+    data = report.model_dump(mode="json", exclude_none=True)
     json_str = json.dumps(data, indent=2, ensure_ascii=False)
 
     if output is not None:

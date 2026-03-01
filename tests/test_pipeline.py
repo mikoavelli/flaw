@@ -105,6 +105,9 @@ class TestRunScan:
 
         report = run_scan("nginx:1.24", dockerfile=df, settings=_offline_settings())
 
+        assert report.dockerfile_issues is not None
+        assert len(report.dockerfile_issues) > 0
+
         assert len(report.dockerfile_issues) > 0
         ids = [i.id for i in report.dockerfile_issues]
         assert "DF-001" in ids
@@ -119,7 +122,7 @@ class TestRunScan:
 
         report = run_scan("nginx:1.24", settings=_offline_settings())
 
-        assert report.dockerfile_issues == []
+        assert report.dockerfile_issues is None
 
     @patch("flaw.pipeline.scan_image")
     def test_pipeline_bad_dockerfile_does_not_crash(
@@ -133,7 +136,7 @@ class TestRunScan:
             settings=_offline_settings(),
         )
 
-        assert report.dockerfile_issues == []
+        assert report.dockerfile_issues is None
         assert report.summary.total == 1
 
     @patch("flaw.pipeline.scan_image")

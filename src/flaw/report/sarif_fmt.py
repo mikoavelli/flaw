@@ -93,7 +93,7 @@ def write_scan_sarif_report(report: ScanReport, *, output: Path | None = None) -
         )
 
     # 2. Process Dockerfile Issues (if any)
-    for issue in report.dockerfile_issues:
+    for issue in report.dockerfile_issues or []:
         if issue.id not in rule_ids:
             rule_ids.add(issue.id)
             rules.append(

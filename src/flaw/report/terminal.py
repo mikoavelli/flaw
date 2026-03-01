@@ -58,7 +58,7 @@ def print_scan_report(
         stderr.print("\n [green]No vulnerabilities found.[/green]\n")
 
     # ── Dockerfile issues ──
-    if report.dockerfile_issues:
+    if report.dockerfile_issues is not None:
         _print_dockerfile_issues(report.dockerfile_issues)
 
     # ── Summary ──
