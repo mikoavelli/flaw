@@ -90,15 +90,15 @@ class TestMLScorer:
         model_data = {
             "format": "flaw_xgboost_v1",
             "features": [
-                "cvss",
-                "av",
-                "ac",
-                "pr",
-                "ui",
-                "s",
-                "c",
-                "i",
-                "a",
+                "base_score",
+                "attack_vector",
+                "attack_complexity",
+                "privileges_required",
+                "user_interaction",
+                "scope",
+                "confidentiality",
+                "integrity",
+                "availability",
                 "v_npm",
                 "p_test-pkg",
             ],
@@ -110,6 +110,7 @@ class TestMLScorer:
             ],
         }
         model = MLScorer(model_data)
+
         assert model.score(_make_vuln(cvss=3.0)) < 50.0
         assert model.score(_make_vuln(cvss=7.0)) > 50.0
 

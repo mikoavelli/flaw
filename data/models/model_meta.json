@@ -1,6 +1,9 @@
 {
+  "format": "flaw_xgboost_v2",
   "features": [
     "base_score",
+    "exploitability_score",
+    "impact_score",
     "attack_vector",
     "attack_complexity",
     "privileges_required",
@@ -9,6 +12,18 @@
     "confidentiality",
     "integrity",
     "availability",
+    "ref_exploit_db",
+    "ref_github_poc",
+    "ref_packetstorm",
+    "ref_advisory",
+    "eco_npm",
+    "eco_pypi",
+    "eco_maven",
+    "eco_golang",
+    "eco_rust",
+    "eco_linux",
+    "eco_windows",
+    "eco_apple",
     "v_adobe",
     "v_advantech",
     "v_amd",
@@ -820,6 +835,6 @@
     3.7073895056026935,
     3.3215774939434626
   ],
-  "score": 0.8969247397873842,
-  "best_iteration": 642
+  "score": 0.9124701383142229,
+  "best_iteration": 433
 }

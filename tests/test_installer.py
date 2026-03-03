@@ -54,9 +54,7 @@ class TestInstaller:
         with pytest.raises(InstallerError, match="Unsupported OS"):
             _download_trivy()
 
-    @patch(
-        "flaw.scanner.installer.Path.unlink"
-    )  # FIX: мокаем unlink, чтобы не было FileNotFoundError
+    @patch("flaw.scanner.installer.Path.unlink")
     @patch("flaw.scanner.installer.load_settings")
     @patch("flaw.scanner.installer.TRIVY_BIN")
     @patch("flaw.scanner.installer._extract_binary")

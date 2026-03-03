@@ -68,11 +68,37 @@ def _print_vuln_table(vulns: list[EnrichedVulnerability]) -> None:
     table.add_column("CVSS", justify="right", width=5)
     table.add_column("EPSS", justify="right", width=7)
     table.add_column("KEV", justify="center", width=4)
+    table.add_column("Context", min_width=12)
     table.add_column("Risk", justify="right", width=6)
 
     for i, v in enumerate(vulns, 1):
         sev_style = _severity_style(v.severity)
         kev_marker = "[red]●[/red]" if v.in_kev else ""
+
+        badges = []
+        refs = [r.lower() for r in v.references]
+        purl = v.purl.lower()
+
+        if any("exploit-db.com" in r for r in refs):
+            badges.append("[bold red]Exploit-DB[/bold red]")
+        elif any("packetstorm" in r for r in refs):
+            badges.append("[bold red]PStorm[/bold red]")
+        elif any("github.com" in r and ("poc" in r or "exploit" in r) for r in refs):
+            badges.append("[yellow]GitHub PoC[/yellow]")
+
+        if "npm" in purl:
+            badges.append("[blue]npm[/blue]")
+        elif "pypi" in purl:
+            badges.append("[blue]pypi[/blue]")
+        elif "golang" in purl:
+            badges.append("[cyan]go[/cyan]")
+        elif "maven" in purl:
+            badges.append("[magenta]java[/magenta]")
+        elif "rust" in purl or "cargo" in purl:
+            badges.append("[color(208)]rust[/color(208)]")
+
+        ctx_str = " ".join(badges)
+
         table.add_row(
             str(i),
             f"[{sev_style}]{v.cve_id}[/{sev_style}]",
@@ -80,6 +106,7 @@ def _print_vuln_table(vulns: list[EnrichedVulnerability]) -> None:
             f"{v.cvss:.1f}",
             f"{v.epss:.4f}",
             kev_marker,
+            ctx_str,
             f"[bold]{v.risk_score:.1f}[/bold]",
         )
 
@@ -90,7 +117,7 @@ def _print_vuln_table(vulns: list[EnrichedVulnerability]) -> None:
 
 def _print_dockerfile_issues(issues: list[DockerfileIssue]) -> None:
     """Render Dockerfile issues."""
-    stderr.print(f"\n [bold]Dockerfile Issues ({len(issues)}):[/bold]")
+    stderr.print(f"\n[bold]Dockerfile Issues ({len(issues)}):[/bold]")
     for issue in issues:
         style = _severity_style(issue.severity)
         line_info = f" (line {issue.line})" if issue.line else ""

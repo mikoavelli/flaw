@@ -17,6 +17,8 @@ MODEL_DIR = Path(__file__).parent.parent / "data" / "models"
 
 BASE_FEATURES = [
     "base_score",
+    "exploitability_score",
+    "impact_score",
     "attack_vector",
     "attack_complexity",
     "privileges_required",
@@ -25,6 +27,18 @@ BASE_FEATURES = [
     "confidentiality",
     "integrity",
     "availability",
+    "ref_exploit_db",
+    "ref_github_poc",
+    "ref_packetstorm",
+    "ref_advisory",
+    "eco_npm",
+    "eco_pypi",
+    "eco_maven",
+    "eco_golang",
+    "eco_rust",
+    "eco_linux",
+    "eco_windows",
+    "eco_apple",
 ]
 LABEL = "label"
 
@@ -54,7 +68,6 @@ def train():
     vendor_vec = CountVectorizer(max_features=100, binary=True, token_pattern=r"[^\s]+")
     product_vec = CountVectorizer(max_features=100, binary=True, token_pattern=r"[^\s]+")
     cwe_vec = CountVectorizer(max_features=50, binary=True, token_pattern=r"[^\s]+")
-
     desc_vec = TfidfVectorizer(
         max_features=100, stop_words="english", token_pattern=r"(?u)\b[a-zA-Z]{3,}\b"
     )
@@ -94,7 +107,7 @@ def train():
     neg_count = len(y_train) - pos_count
     scale_weight = neg_count / max(pos_count, 1)
 
-    logger.info("Training XGBoost model...")
+    logger.info("Training XGBoost Model v2...")
 
     model = XGBClassifier(
         n_estimators=3000,
@@ -111,10 +124,11 @@ def train():
 
     model.fit(X_train, y_train, eval_set=[(X_test, y_test)], verbose=100)
 
-    model.save_model(str(MODEL_DIR / "xgboost_v1.json"))
+    model.save_model(str(MODEL_DIR / "xgboost_v2.json"))
 
     auc_score = float(model.best_score)
     meta = {
+        "format": "flaw_xgboost_v2",
         "features": all_features,
         "vendor_vocab": vendor_vocab,
         "product_vocab": product_vocab,
@@ -128,9 +142,8 @@ def train():
     with open(MODEL_DIR / "model_meta.json", "w", encoding="utf-8") as f:
         json.dump(meta, f, indent=2)
 
-    logger.info("\n--- Final Results ---")
+    logger.info("\n--- Final Results (v2) ---")
     logger.info(f"Test AUC: {auc_score:.4f}")
-    logger.info(f"Best iteration: {model.best_iteration}")
     logger.info(f"Total features: {len(all_features)}")
 
     importances = model.feature_importances_

@@ -53,13 +53,8 @@ def _parse_purl(purl: str) -> tuple[str, str]:
     try:
         clean_purl = purl[4:].split("@")[0].split("?")[0]
         parts = clean_purl.split("/")
-
         product = parts[-1]
-        vendor = ""
-
-        if len(parts) >= 2:
-            vendor = parts[-2]
-
+        vendor = parts[-2] if len(parts) >= 2 else ""
         return vendor, product
     except Exception:
         return "", ""
@@ -77,21 +72,16 @@ def _formula_score(vuln: EnrichedVulnerability) -> float:
 
 
 class MLScorer:
-    """Pure-Python XGBoost NLP evaluator — zero external dependencies."""
+    """Pure-Python XGBoost NLP evaluator — supports dynamic feature injection."""
 
     def __init__(self, data: dict) -> None:
         self.features = data["features"]
         self.trees = data["trees"]
 
-        self.vendor_vocab = data.get("vendor_vocab", [])
-        self.product_vocab = data.get("product_vocab", [])
-        self.cwe_vocab = data.get("cwe_vocab", [])
+        self.f_map = {name: i for i, name in enumerate(self.features)}
+
         self.desc_vocab = data.get("desc_vocab", [])
         self.desc_idf = data.get("desc_idf", [])
-
-        self._v_map = {v: i for i, v in enumerate(self.vendor_vocab)}
-        self._p_map = {p: i for i, p in enumerate(self.product_vocab)}
-        self._cwe_map = {c: i for i, c in enumerate(self.cwe_vocab)}
         self._desc_map = {d: i for i, d in enumerate(self.desc_vocab)}
 
         self._word_pattern = re.compile(r"\b[a-zA-Z]{3,}\b")
@@ -104,43 +94,84 @@ class MLScorer:
         return self._token_pattern.findall(text.lower())
 
     def score(self, vuln: EnrichedVulnerability) -> float:
-        """Compute the ML exploitation probability (0-100)."""
+        fv = [0.0] * len(self.features)
+
+        def set_f(name: str, val: float) -> None:
+            if name in self.f_map:
+                fv[self.f_map[name]] = float(val)
+
         vec = _parse_cvss_vector(vuln.cvss_vector)
+        set_f("base_score", vuln.cvss)
+        set_f("exploitability_score", vuln.exploitability_score)
+        set_f("impact_score", vuln.impact_score)
+        set_f("attack_vector", vec["AV"])
+        set_f("attack_complexity", vec["AC"])
+        set_f("privileges_required", vec["PR"])
+        set_f("user_interaction", vec["UI"])
+        set_f("scope", vec["S"])
+        set_f("confidentiality", vec["C"])
+        set_f("integrity", vec["I"])
+        set_f("availability", vec["A"])
+
+        refs = [r.lower() for r in vuln.references]
+        set_f("ref_exploit_db", 1.0 if any("exploit-db.com" in r for r in refs) else 0.0)
+        set_f("ref_packetstorm", 1.0 if any("packetstormsecurity.com" in r for r in refs) else 0.0)
+        set_f(
+            "ref_github_poc",
+            1.0
+            if any(
+                "github.com" in r and ("poc" in r or "exploit" in r or "vuln" in r) for r in refs
+            )
+            else 0.0,
+        )
+        set_f(
+            "ref_advisory",
+            1.0
+            if any(
+                "security.microsoft.com" in r
+                or "ubuntu.com/security" in r
+                or "access.redhat.com" in r
+                for r in refs
+            )
+            else 0.0,
+        )
 
         purl_vendor, purl_product = _parse_purl(vuln.purl)
-
         vendors_str = purl_vendor if purl_vendor else "unknown"
         products_str = purl_product if purl_product else vuln.pkg_name
 
+        joined_cpe = f"{vendors_str} {products_str}".lower()
+        set_f("eco_npm", 1.0 if any(x in joined_cpe for x in ("node", "npm", "js")) else 0.0)
+        set_f(
+            "eco_pypi", 1.0 if any(x in joined_cpe for x in ("python", "django", "flask")) else 0.0
+        )
+        set_f(
+            "eco_maven",
+            1.0 if any(x in joined_cpe for x in ("java", "maven", "apache", "spring")) else 0.0,
+        )
+        set_f("eco_golang", 1.0 if any(x in joined_cpe for x in ("go", "golang")) else 0.0)
+        set_f("eco_rust", 1.0 if any(x in joined_cpe for x in ("rust", "cargo")) else 0.0)
+        set_f(
+            "eco_linux",
+            1.0
+            if any(
+                x in joined_cpe for x in ("linux", "ubuntu", "debian", "alpine", "redhat", "centos")
+            )
+            else 0.0,
+        )
+        set_f("eco_windows", 1.0 if any(x in joined_cpe for x in ("microsoft", "windows")) else 0.0)
+        set_f(
+            "eco_apple",
+            1.0 if any(x in joined_cpe for x in ("apple", "mac_os", "iphone_os")) else 0.0,
+        )
+
         cwe_str = " ".join(vuln.cwe_ids)
-
-        fv = [0.0] * len(self.features)
-        fv[0] = float(vuln.cvss)
-        fv[1] = float(vec["AV"])
-        fv[2] = float(vec["AC"])
-        fv[3] = float(vec["PR"])
-        fv[4] = float(vec["UI"])
-        fv[5] = float(vec["S"])
-        fv[6] = float(vec["C"])
-        fv[7] = float(vec["I"])
-        fv[8] = float(vec["A"])
-
-        idx_offset = 9
-
         for token in set(self._tokenize_tokens(vendors_str)):
-            if token in self._v_map:
-                fv[idx_offset + self._v_map[token]] = 1.0
-        idx_offset += len(self.vendor_vocab)
-
+            set_f(f"v_{token}", 1.0)
         for token in set(self._tokenize_tokens(products_str)):
-            if token in self._p_map:
-                fv[idx_offset + self._p_map[token]] = 1.0
-        idx_offset += len(self.product_vocab)
-
+            set_f(f"p_{token}", 1.0)
         for token in set(self._tokenize_tokens(cwe_str)):
-            if token in self._cwe_map:
-                fv[idx_offset + self._cwe_map[token]] = 1.0
-        idx_offset += len(self.cwe_vocab)
+            set_f(token, 1.0)
 
         desc_tokens = self._tokenize_words(vuln.description)
         tf_counts: dict[str, int] = {}
@@ -153,8 +184,7 @@ class MLScorer:
 
         for token, tf in tf_counts.items():
             vocab_idx = self._desc_map[token]
-            idf = self.desc_idf[vocab_idx]
-            val = tf * idf
+            val = tf * self.desc_idf[vocab_idx]
             tfidf_values[vocab_idx] = val
             sum_sq += val * val
 
@@ -162,7 +192,7 @@ class MLScorer:
             norm = math.sqrt(sum_sq)
             for i in range(len(tfidf_values)):
                 if tfidf_values[i] > 0:
-                    fv[idx_offset + i] = tfidf_values[i] / norm
+                    set_f(f"txt_{self.desc_vocab[i]}", tfidf_values[i] / norm)
 
         raw = sum(self._walk(tree, fv) for tree in self.trees)
         prob = 1.0 / (1.0 + math.exp(-raw))
@@ -200,7 +230,7 @@ def _load_model() -> MLScorer | None:
         with open(model_path, encoding="utf-8") as f:
             data = json.load(f)
 
-        if data.get("format") != "flaw_xgboost_v1":
+        if data.get("format") not in ("flaw_xgboost_v1", "flaw_xgboost_v2"):
             logger.warning("Unknown model format, using formula")
             return None
 
@@ -215,7 +245,6 @@ def _load_model() -> MLScorer | None:
 def score_vulnerabilities(
     vulnerabilities: list[EnrichedVulnerability],
 ) -> list[EnrichedVulnerability]:
-    """Assign risk scores and sort by risk descending."""
     model = _load_model()
 
     if model:
