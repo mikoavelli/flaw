@@ -13,14 +13,18 @@ from flaw.report.terminal import stderr
 
 
 def clean_command(
-    all: Annotated[bool, typer.Option("--all", help="Clean everything (cache, model, trivy)")] = False,
+    all: Annotated[
+        bool, typer.Option("--all", help="Clean everything (cache, model, trivy)")
+    ] = False,
     cache: Annotated[bool, typer.Option("--cache", help="Clean vulnerability databases")] = False,
     model: Annotated[bool, typer.Option("--model", help="Clean ML models")] = False,
     trivy: Annotated[bool, typer.Option("--trivy", help="Clean local Trivy binary")] = False,
 ) -> None:
     """Remove downloaded data (cache, models, binaries)."""
 
-    if not any([all, cache, model, trivy]):
+    explicit_args = any([all, cache, model, trivy])
+
+    if not explicit_args:
         cache = True
 
     if all or cache:
@@ -38,16 +42,16 @@ def clean_command(
             CACHE_DIR.mkdir()
 
     if all or model:
-        if MODELS_DIR.exists():
+        if MODELS_DIR.exists() and any(MODELS_DIR.iterdir()):
             shutil.rmtree(MODELS_DIR)
             MODELS_DIR.mkdir()
             stderr.print("[green]✓ ML models cleared.[/green]")
 
     if all or trivy:
-        if BIN_DIR.exists():
+        if BIN_DIR.exists() and any(BIN_DIR.iterdir()):
             shutil.rmtree(BIN_DIR)
             BIN_DIR.mkdir()
             stderr.print("[green]✓ Local Trivy binaries cleared.[/green]")
 
-    if not any([all, cache, model, trivy]) and not DB_PATH.exists():
+    if not explicit_args and not DB_PATH.exists():
         stderr.print("[yellow]Nothing to clean.[/yellow]")

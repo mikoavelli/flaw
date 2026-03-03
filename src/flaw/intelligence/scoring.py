@@ -9,8 +9,8 @@ import re
 from pathlib import Path
 
 from flaw.core.paths import DATA_DIR
-from flaw.models import EnrichedVulnerability
 from flaw.intelligence.model_manager import ensure_model
+from flaw.models import EnrichedVulnerability
 
 logger = logging.getLogger("flaw")
 
@@ -33,37 +33,6 @@ CVSS_MAP = {
 }
 
 
-def _load_model() -> MLScorer | None:
-    """Load ML model from exported JSON. Returns None if unavailable."""
-    global _cached_model, _model_load_attempted  # noqa: PLW0603
-
-    if _model_load_attempted:
-        return _cached_model
-
-    _model_load_attempted = True
-
-    model_path = ensure_model()
-
-    if not model_path or not model_path.is_file():
-        logger.debug("ML model not available, falling back to formula")
-        return None
-
-    try:
-        with open(model_path, encoding="utf-8") as f:
-            data = json.load(f)
-
-        if data.get("format") != "flaw_xgboost_v1":
-            logger.warning("Unknown model format, using formula")
-            return None
-
-        _cached_model = MLScorer(data)
-        logger.debug("ML model loaded: %d trees from %s", data["n_trees"], model_path)
-        return _cached_model
-    except (json.JSONDecodeError, KeyError, TypeError) as e:
-        logger.warning("Failed to load ML model: %s", e)
-        return None
-
-
 def _parse_cvss_vector(vector: str) -> dict[str, int]:
     p = {"AV": -1, "AC": -1, "PR": -1, "UI": -1, "S": -1, "C": -1, "I": -1, "A": -1}
     if not vector:
@@ -79,14 +48,6 @@ def _parse_cvss_vector(vector: str) -> dict[str, int]:
 
 
 def _parse_purl(purl: str) -> tuple[str, str]:
-    """
-    Extracts vendor/namespace and product from a Package URL.
-
-    Examples:
-      pkg:deb/debian/util-linux@2.41 -> vendor='debian', product='util-linux'
-      pkg:npm/express@4.17 -> vendor='npm', product='express'
-      pkg:golang/github.com/gin-gonic/gin -> vendor='gin-gonic', product='gin'
-    """
     if not purl or not purl.startswith("pkg:"):
         return "", ""
     try:
@@ -229,12 +190,14 @@ def _load_model() -> MLScorer | None:
 
     _model_load_attempted = True
 
-    if not MODEL_PATH.is_file():
-        logger.debug("ML model not found at %s, using formula", MODEL_PATH)
+    model_path = ensure_model()
+
+    if not model_path or not model_path.is_file():
+        logger.debug("ML model not available, falling back to formula")
         return None
 
     try:
-        with open(MODEL_PATH, encoding="utf-8") as f:
+        with open(model_path, encoding="utf-8") as f:
             data = json.load(f)
 
         if data.get("format") != "flaw_xgboost_v1":
@@ -242,7 +205,7 @@ def _load_model() -> MLScorer | None:
             return None
 
         _cached_model = MLScorer(data)
-        logger.debug("ML model loaded: %d trees from %s", data["n_trees"], MODEL_PATH)
+        logger.debug("ML model loaded: %d trees from %s", data["n_trees"], model_path)
         return _cached_model
     except (json.JSONDecodeError, KeyError, TypeError) as e:
         logger.warning("Failed to load ML model: %s", e)

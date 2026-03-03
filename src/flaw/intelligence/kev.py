@@ -8,11 +8,10 @@ from pathlib import Path
 
 import httpx
 
+from flaw.core.config import load_settings
 from flaw.intelligence.db import is_stale, set_last_update
 
 logger = logging.getLogger("flaw")
-
-KEV_URL = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
 
 
 class KEVError(Exception):
@@ -20,15 +19,15 @@ class KEVError(Exception):
 
 
 def update(conn: sqlite3.Connection, cache_dir: Path) -> int:
-    """
-    Download latest KEV catalog and populate the database.
+    settings = load_settings()
 
-    Returns:
-        Number of entries inserted.
-    """
     try:
-        with httpx.Client(timeout=30, follow_redirects=True) as client:
-            response = client.get(KEV_URL)
+        with httpx.Client(
+            timeout=settings.network.timeout,
+            verify=settings.network.verify_ssl,
+            follow_redirects=True,
+        ) as client:
+            response = client.get(settings.urls.kev)
             response.raise_for_status()
             data = response.json()
 

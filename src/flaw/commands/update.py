@@ -74,15 +74,18 @@ def update_cache() -> None:
     """Download or refresh EPSS and KEV databases."""
     _do_update_cache()
 
+
 @update_app.command("model")
 def update_model() -> None:
     """Download the latest Context-Aware ML Model."""
     _do_update_model()
 
+
 @update_app.command("trivy")
 def update_trivy() -> None:
     """Download or update the Trivy scanning engine."""
     _do_update_trivy()
+
 
 @update_app.command("all")
 def update_all() -> None:

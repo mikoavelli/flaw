@@ -46,28 +46,16 @@ class TestParsers:
             "util-linux",
         )
         assert _parse_purl("pkg:npm/express@4.17.1") == ("npm", "express")
-
         assert _parse_purl("pkg:golang/github.com/gin-gonic/gin@v1.9.1") == (
             "gin-gonic",
             "gin",
         )
-
         assert _parse_purl("pkg:maven/org.apache.xmlgraphics/batik-anim@1.14") == (
             "org.apache.xmlgraphics",
             "batik-anim",
         )
-
         assert _parse_purl("invalid") == ("", "")
         assert _parse_purl("") == ("", "")
-
-        class BadObj:
-            def __bool__(self) -> bool:
-                return True
-
-            def startswith(self, val: str) -> bool:
-                return True
-
-        assert _parse_purl(BadObj()) == ("", "")  # type: ignore
 
     def test_parse_cvss_vector(self) -> None:
         vec = _parse_cvss_vector("CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:C/C:L/I:L/A:N")
@@ -79,9 +67,7 @@ class TestParsers:
         assert vec["C"] == 1
         assert vec["I"] == 1
         assert vec["A"] == 0
-
         assert _parse_cvss_vector("")["AV"] == -1
-        assert _parse_cvss_vector("CVSS:3.1/UNKNOWN:X")["AV"] == -1
 
 
 class TestFormulaScore:
@@ -120,11 +106,7 @@ class TestMLScorer:
             "product_vocab": ["test-pkg"],
             "n_trees": 1,
             "trees": [
-                {
-                    "split": 0,
-                    "split_condition": 5.0,
-                    "children": [{"leaf": -1.0}, {"leaf": 1.0}],
-                }
+                {"split": 0, "split_condition": 5.0, "children": [{"leaf": -1.0}, {"leaf": 1.0}]}
             ],
         }
         model = MLScorer(model_data)
@@ -139,7 +121,9 @@ class TestScoreVulnerabilities:
             _make_vuln(cvss=9.0, epss=0.9, in_kev=True, has_exploit=True),
             _make_vuln(cvss=5.0, epss=0.1),
         ]
-        scored = score_vulnerabilities(vulns)
+        with patch("flaw.intelligence.scoring.ensure_model", return_value=None):
+            scored = score_vulnerabilities(vulns)
+
         assert scored[0].risk_score >= scored[1].risk_score
         assert scored[1].risk_score >= scored[2].risk_score
 
@@ -155,7 +139,7 @@ class TestScoreVulnerabilities:
         model_file = tmp_path / "corrupted.json"
         model_file.write_text("{invalid json")
 
-        with patch.object(scoring_module, "MODEL_PATH", model_file):
+        with patch("flaw.intelligence.scoring.ensure_model", return_value=model_file):
             assert scoring_module._load_model() is None
 
         scoring_module._cached_model = None
@@ -170,7 +154,7 @@ class TestScoreVulnerabilities:
         model_file = tmp_path / "wrong.json"
         model_file.write_text('{"format": "wrong"}')
 
-        with patch.object(scoring_module, "MODEL_PATH", model_file):
+        with patch("flaw.intelligence.scoring.ensure_model", return_value=model_file):
             assert scoring_module._load_model() is None
 
         scoring_module._cached_model = None

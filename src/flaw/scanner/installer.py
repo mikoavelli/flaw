@@ -13,12 +13,12 @@ from pathlib import Path
 
 import httpx
 
+from flaw.core.config import load_settings
 from flaw.core.paths import BIN_DIR
 
 logger = logging.getLogger("flaw")
 
 TRIVY_BIN = BIN_DIR / ("trivy.exe" if platform.system() == "Windows" else "trivy")
-API_URL = "https://api.github.com/repos/aquasecurity/trivy/releases/latest"
 
 
 class InstallerError(Exception):
@@ -34,7 +34,7 @@ def get_trivy_info() -> tuple[str | None, str]:
         return None, "Unknown"
 
     try:
-        res = subprocess.run([candidate, "--version"], capture_output=True, text=True, timeout=5) # noqa: S603
+        res = subprocess.run([candidate, "--version"], capture_output=True, text=True, timeout=5)  # noqa: S603
         first_line = res.stdout.split("\n")[0]
         return candidate, first_line.replace("Version: ", "v")
     except Exception:
@@ -62,6 +62,8 @@ def ensure_trivy(*, force: bool = False, offline: bool = False) -> str:
 
 def _download_trivy() -> str:
     BIN_DIR.mkdir(parents=True, exist_ok=True)
+    settings = load_settings()
+
     system = platform.system()
     machine = platform.machine().lower()
 
@@ -74,16 +76,29 @@ def _download_trivy() -> str:
     if not t_os:
         raise InstallerError(f"Unsupported OS for automatic install: {system}")
 
+    headers = {}
+    if settings.network.github_token:
+        headers["Authorization"] = f"Bearer {settings.network.github_token}"
+
     try:
-        with httpx.Client(follow_redirects=True, timeout=30) as client:
-            resp = client.get(API_URL)
+        with httpx.Client(
+            follow_redirects=True,
+            timeout=settings.network.timeout,
+            verify=settings.network.verify_ssl,
+            headers=headers,
+        ) as client:
+            resp = client.get(settings.urls.trivy_api)
             resp.raise_for_status()
             data = resp.json()
 
             asset_url = None
             for asset in data.get("assets", []):
                 name = asset["name"]
-                if t_os in name and t_arch in name and (name.endswith(".tar.gz") or name.endswith(".zip")):
+                if (
+                    t_os in name
+                    and t_arch in name
+                    and (name.endswith(".tar.gz") or name.endswith(".zip"))
+                ):
                     asset_url = asset["browser_download_url"]
                     break
 
@@ -113,21 +128,20 @@ def _download_trivy() -> str:
 
 
 def _extract_binary(archive_path: Path) -> None:
-    """Safely extract only the executable file from the archive."""
     target_name = "trivy.exe" if platform.system() == "Windows" else "trivy"
 
     if archive_path.name.endswith(".zip"):
-        with zipfile.ZipFile(archive_path, 'r') as zip_ref:
-            for member in zip_ref.namelist():
-                if member.endswith(target_name):
-                    with zip_ref.open(member) as source, open(TRIVY_BIN, "wb") as target:
+        with zipfile.ZipFile(archive_path, "r") as zip_ref:
+            for zip_member in zip_ref.namelist():
+                if zip_member.endswith(target_name):
+                    with zip_ref.open(zip_member) as source, open(TRIVY_BIN, "wb") as target:
                         shutil.copyfileobj(source, target)
                     break
     else:
         with tarfile.open(archive_path, "r:gz") as tar_ref:
-            for member in tar_ref.getmembers():
-                if member.name.endswith(target_name):
-                    f = tar_ref.extractfile(member)
+            for tar_member in tar_ref.getmembers():
+                if tar_member.name.endswith(target_name):
+                    f = tar_ref.extractfile(tar_member)
                     if f:
                         with open(TRIVY_BIN, "wb") as target:
                             shutil.copyfileobj(f, target)

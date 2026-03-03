@@ -169,3 +169,17 @@ class TestSARIFReport:
         write_lint_sarif_report(issues, "Dockerfile")
         captured = capsys.readouterr()  # type: ignore[attr-defined]
         assert len(json.loads(captured.out)["runs"][0]["results"]) == 1
+
+    def test_write_scan_sarif_report_to_file_output(self, tmp_path: Path) -> None:
+        report = _make_report()
+        out_file = tmp_path / "output.sarif"
+        write_scan_sarif_report(report, output=out_file)
+        assert out_file.exists()
+        assert "2.1.0" in out_file.read_text()
+
+    def test_write_lint_sarif_report_to_file_output(self, tmp_path: Path) -> None:
+        issues = [DockerfileIssue(id="DF-001", severity="HIGH", description="x")]
+        out_file = tmp_path / "lint.sarif"
+        write_lint_sarif_report(issues, "Dockerfile", output=out_file)
+        assert out_file.exists()
+        assert "DF-001" in out_file.read_text()

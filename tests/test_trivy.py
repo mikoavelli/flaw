@@ -25,11 +25,13 @@ class TestScanImage:
         assert report.total_vulnerabilities == 1
         assert report.results[0].vulnerabilities[0].cve_id == "CVE-2023-44487"
 
+    @patch("flaw.scanner.trivy.ensure_trivy")
     @patch("flaw.scanner.trivy.subprocess.run")
-    def test_trivy_not_installed(self, mock_run: Any) -> None:
+    def test_trivy_not_installed(self, mock_run: Any, mock_ensure: Any) -> None:
+        mock_ensure.return_value = "/usr/bin/trivy"
         mock_run.side_effect = FileNotFoundError()
 
-        with pytest.raises(ScannerError, match="Trivy is not installed"):
+        with pytest.raises(ScannerError, match="Failed to execute Trivy binary"):
             scan_image("nginx:1.24")
 
     @patch("flaw.scanner.trivy.subprocess.run")

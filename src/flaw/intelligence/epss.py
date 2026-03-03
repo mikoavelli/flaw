@@ -10,11 +10,10 @@ from pathlib import Path
 
 import httpx
 
+from flaw.core.config import load_settings
 from flaw.intelligence.db import is_stale, set_last_update
 
 logger = logging.getLogger("flaw")
-
-EPSS_URL = "https://epss.cyentia.com/epss_scores-current.csv.gz"
 
 
 class EPSSError(Exception):
@@ -36,17 +35,16 @@ def _parse_gz(gz_path: Path) -> Iterator[tuple[str, float]]:
 
 
 def update(conn: sqlite3.Connection, cache_dir: Path) -> int:
-    """
-    Download latest EPSS scores and populate the database.
-
-    Returns:
-        Number of entries inserted.
-    """
+    settings = load_settings()
     gz_path = cache_dir / "epss_temp.csv.gz"
 
     try:
-        with httpx.Client(timeout=60, follow_redirects=True) as client:
-            with client.stream("GET", EPSS_URL) as response:
+        with httpx.Client(
+            timeout=settings.network.timeout,
+            verify=settings.network.verify_ssl,
+            follow_redirects=True,
+        ) as client:
+            with client.stream("GET", settings.urls.epss) as response:
                 response.raise_for_status()
                 with open(gz_path, "wb") as f:
                     for chunk in response.iter_bytes():
@@ -54,10 +52,7 @@ def update(conn: sqlite3.Connection, cache_dir: Path) -> int:
 
         conn.execute("DELETE FROM epss_scores")
         rows = list(_parse_gz(gz_path))
-        conn.executemany(
-            "INSERT INTO epss_scores (cve, score) VALUES (?, ?)",
-            rows,
-        )
+        conn.executemany("INSERT INTO epss_scores (cve, score) VALUES (?, ?)", rows)
         set_last_update(conn, "epss")
         conn.commit()
 

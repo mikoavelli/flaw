@@ -60,7 +60,7 @@ def scan_image(
     except InstallerError as e:
         raise ScannerError(str(e)) from e
 
-    cmd =[trivy_bin, "image", "--format", "json", "--quiet"]
+    cmd = [trivy_bin, "image", "--format", "json", "--quiet"]
 
     if image_src and image_src != "unknown":
         cmd.extend(["--image-src", image_src])

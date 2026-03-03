@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import time
-from pathlib import Path
 
 from rich.table import Table
 
@@ -34,7 +33,7 @@ def status_command() -> None:
     if DB_PATH.exists():
         conn = get_connection()
         try:
-            for source, tbl_name in[("EPSS Cache", "epss_scores"), ("KEV Cache", "kev_entries")]:
+            for source, tbl_name in [("EPSS Cache", "epss_scores"), ("KEV Cache", "kev_entries")]:
                 count = get_entry_count(conn, tbl_name)
                 last = get_last_update(conn, source.split()[0].lower())
                 age_hours = (time.time() - last) / 3600 if last > 0 else 999
@@ -58,10 +57,12 @@ def status_command() -> None:
         table.add_row(
             "ML Model",
             "[green]Ready[/green]",
-            f"XGBoost Portable | {size_kb:.0f} KB ({_format_age(mtime)})"
+            f"XGBoost Portable | {size_kb:.0f} KB ({_format_age(mtime)})",
         )
     else:
-        table.add_row("ML Model", "[yellow]Missing[/yellow]", "Formula fallback. Run `flaw update model`")
+        table.add_row(
+            "ML Model", "[yellow]Missing[/yellow]", "Formula fallback. Run `flaw update model`"
+        )
 
     trivy_path, trivy_version = get_trivy_info()
     if trivy_path:

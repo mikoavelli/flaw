@@ -32,10 +32,12 @@ app.command(name="lint")(lint_command)
 app.command(name="status")(status_command)
 app.command(name="clean")(clean_command)
 
+
 def _version_callback(value: bool) -> None:
     if value:
         print(f"flaw {__version__}")  # noqa: T201
         raise typer.Exit()
+
 
 @app.callback()
 def main(

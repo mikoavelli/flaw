@@ -1,6 +1,7 @@
 """XDG-compliant directory management."""
 
 from pathlib import Path
+
 from platformdirs import PlatformDirs
 
 _dirs = PlatformDirs(appname="flaw", appauthor=False)

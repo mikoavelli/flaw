@@ -17,6 +17,7 @@ class TestLoadSettings:
         assert settings.scan.risk_threshold == 70.0
         assert settings.scan.trivy_timeout == 300
         assert settings.cache.ttl_hours == 24
+        assert settings.network.verify_ssl is True
 
     def test_loads_from_toml(self, tmp_path: Path) -> None:
         config = tmp_path / "flaw.toml"
@@ -33,7 +34,7 @@ class TestLoadSettings:
         config = tmp_path / "flaw.toml"
         config.write_text("[scan]\nrisk_threshold = 50.0\n")
 
-        monkeypatch.setenv("FLAW_RISK_THRESHOLD", "99.0")
+        monkeypatch.setenv("FLAW_SCAN_RISK_THRESHOLD", "99.0")
 
         settings = load_settings(config_path=config)
         assert settings.scan.risk_threshold == 99.0

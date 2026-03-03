@@ -10,8 +10,6 @@ from rich.table import Table
 from flaw.core.paths import CACHE_DIR, DATA_DIR, ensure_dirs
 from flaw.core.state import get_flags
 from flaw.intelligence import epss, kev
-from flaw.intelligence.model_manager import ensure_model
-from flaw.scanner.installer import ensure_trivy, InstallerError
 from flaw.intelligence.db import (
     DB_PATH,
     clear_all,
@@ -19,8 +17,9 @@ from flaw.intelligence.db import (
     get_entry_count,
     get_last_update,
 )
+from flaw.intelligence.model_manager import ensure_model
 from flaw.report.terminal import stderr
-
+from flaw.scanner.installer import InstallerError, ensure_trivy
 
 cache_app = typer.Typer(help="Manage local vulnerability databases.")
 
@@ -61,8 +60,8 @@ def update() -> None:
 
         stderr.print("Checking Trivy Engine...", end="  ")
         try:
-            bin_path = ensure_trivy()
-            stderr.print(f"[green]done[/green]")
+            ensure_trivy()
+            stderr.print("[green]done[/green]")
         except InstallerError as e:
             stderr.print(f"[red]failed[/red] ({e})")
 
