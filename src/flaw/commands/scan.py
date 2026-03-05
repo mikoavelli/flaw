@@ -43,8 +43,12 @@ def scan_command(
         Path | None,
         typer.Option("--dockerfile", "-d", help="Also analyze a Dockerfile alongside the image"),
     ] = None,
+    vex: Annotated[
+        list[Path] | None,
+        typer.Option("--vex", help="Path to one or more OpenVEX JSON documents"),
+    ] = None,
 ) -> None:
-    """Scan a container image for vulnerabilities and prioritize risks."""
+    """Scan a container image for vulnerabilities, prioritize risks, and apply VEX."""
     flags = get_flags()
     settings = load_settings(flags=flags)
 
@@ -52,6 +56,7 @@ def scan_command(
         full_report = run_scan(
             image,
             dockerfile=dockerfile,
+            vex_paths=vex,
             settings=settings,
         )
     except ScannerError as e:

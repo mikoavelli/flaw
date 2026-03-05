@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 import pytest
 
+from flaw.scanner.installer import InstallerError
 from flaw.scanner.trivy import ScannerError, _parse_error, scan_image
 
 
@@ -150,3 +151,19 @@ class TestParseError:
     def test_generic_error(self) -> None:
         msg = _parse_error("something unexpected", "img:tag")
         assert "img:tag" in msg
+
+    def test_timeout_error(self) -> None:
+        msg = _parse_error("context deadline exceeded (timeout)", "img:tag")
+        assert "timed out" in msg.lower()
+
+    def test_no_such_image_without_unauthorized(self) -> None:
+        msg = _parse_error("no such image: fake:latest", "fake:latest")
+        assert "not found" in msg.lower()
+
+
+class TestTrivyScanExceptions:
+    @patch("flaw.scanner.trivy.ensure_trivy", side_effect=InstallerError("Missing Trivy"))
+    def test_installer_error_bubbles_up(self, mock_ensure: Any) -> None:
+
+        with pytest.raises(ScannerError, match="Missing Trivy"):
+            scan_image("nginx:latest")

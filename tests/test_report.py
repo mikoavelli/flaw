@@ -98,6 +98,74 @@ class TestTerminalReport:
     def test_print_lint_report_empty(self) -> None:
         print_lint_report([], "./Dockerfile")
 
+    def test_print_vuln_table_badges(self) -> None:
+        from flaw.report.terminal import _print_vuln_table
+
+        vulns = [
+            EnrichedVulnerability(
+                cve_id="CVE-1",
+                pkg_name="a",
+                installed_version="1.0",
+                severity="HIGH",
+                purl="pkg:npm/a",
+                references=["exploit-db.com"],
+            ),
+            EnrichedVulnerability(
+                cve_id="CVE-2",
+                pkg_name="b",
+                installed_version="1.0",
+                severity="MEDIUM",
+                purl="pkg:pypi/b",
+                references=["packetstormsecurity.com"],
+            ),
+            EnrichedVulnerability(
+                cve_id="CVE-3",
+                pkg_name="c",
+                installed_version="1.0",
+                severity="LOW",
+                purl="pkg:golang/c",
+                references=["github.com/user/poc"],
+            ),
+            EnrichedVulnerability(
+                cve_id="CVE-4",
+                pkg_name="d",
+                installed_version="1.0",
+                severity="CRITICAL",
+                purl="pkg:maven/d",
+            ),
+            EnrichedVulnerability(
+                cve_id="CVE-5",
+                pkg_name="e",
+                installed_version="1.0",
+                severity="HIGH",
+                purl="pkg:cargo/e",
+            ),
+            EnrichedVulnerability(
+                cve_id="CVE-6",
+                pkg_name="f",
+                installed_version="1.0",
+                severity="HIGH",
+                vex_status="fixed",
+            ),
+            EnrichedVulnerability(
+                cve_id="CVE-7",
+                pkg_name="g",
+                installed_version="1.0",
+                severity="HIGH",
+                vex_status="not_affected",
+            ),
+            EnrichedVulnerability(
+                cve_id="CVE-8",
+                pkg_name="h",
+                installed_version="1.0",
+                severity="HIGH",
+                vex_status="not_affected",
+                vex_justification="vulnerable_code_not_in_execute_path",
+            ),
+        ]
+
+        _print_vuln_table(vulns)
+
 
 class TestJSONReport:
     def test_write_scan_report_to_file(self, tmp_path: Path) -> None:
@@ -183,3 +251,22 @@ class TestSARIFReport:
         write_lint_sarif_report(issues, "Dockerfile", output=out_file)
         assert out_file.exists()
         assert "DF-001" in out_file.read_text()
+
+    def test_sarif_suppressions_for_vex(self, capsys: object) -> None:
+        """Test that VEX 'not_affected' creates SARIF suppressions."""
+        report = _make_report(num_vulns=1)
+        report.vulnerabilities[0].vex_status = "not_affected"
+        report.vulnerabilities[0].vex_justification = "vulnerable_code_not_in_execute_path"
+
+        write_scan_sarif_report(report)
+        captured = capsys.readouterr()  # type: ignore[attr-defined]
+        data = json.loads(captured.out)
+
+        results = data["runs"][0]["results"]
+        assert len(results) > 0
+
+        suppressions = results[0].get("suppressions", [])
+        assert len(suppressions) == 1
+        assert suppressions[0]["kind"] == "external"
+        assert suppressions[0]["justification"] == "vulnerable_code_not_in_execute_path"
+        assert results[0]["level"] == "note"

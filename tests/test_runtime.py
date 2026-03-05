@@ -78,6 +78,13 @@ class TestResolveImageSource:
         assert result.runtime == "podman"
         assert result.is_local is True
 
+    @patch("flaw.scanner.runtime.subprocess.run", side_effect=FileNotFoundError())
+    def test_image_exists_file_not_found(self, mock_run: Any) -> None:
+        """Covers the FileNotFoundError exception when running the runtime command."""
+        from flaw.scanner.runtime import _image_exists
+
+        assert _image_exists("docker", "img:latest") is False
+
 
 class TestInspectImage:
     """Tests for image inspection."""

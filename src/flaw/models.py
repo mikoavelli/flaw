@@ -2,9 +2,35 @@
 
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+
+
+class VexStatus(StrEnum):
+    AFFECTED = "affected"
+    NOT_AFFECTED = "not_affected"
+    FIXED = "fixed"
+    UNDER_INVESTIGATION = "under_investigation"
+
+
+class VexJustification(StrEnum):
+    VULNERABLE_CODE_NOT_IN_EXECUTE_PATH = "vulnerable_code_not_in_execute_path"
+    COMPONENT_NOT_PRESENT = "component_not_present"
+    INLINE_MITIGATIONS_ALREADY_EXIST = "inline_mitigations_already_exist"
+    VULNERABLE_CODE_CANNOT_BE_CONTROLLED_BY_ADVERSARY = (
+        "vulnerable_code_cannot_be_controlled_by_adversary"
+    )
+    VULNERABILITY_SPECIFIC_TO_ANOTHER_ENVIRONMENT = "vulnerability_specific_to_another_environment"
+
+
+class VexStatement(BaseModel):
+    cve_id: str
+    status: VexStatus
+    justification: VexJustification | None = None
+    impact_statement: str = ""
+    purl: str | None = None
 
 
 class Vulnerability(BaseModel):
@@ -19,6 +45,8 @@ class Vulnerability(BaseModel):
     description: str = Field(default="", alias="Description")
     cwe_ids: list[str] = Field(default_factory=list, alias="CweIDs")
     references: list[str] = Field(default_factory=list, alias="References")
+
+    reachable: bool | None = Field(default=None, alias="Reachable")
 
     purl: str = Field(default="", alias="PURL")
     cvss: float = 0.0
@@ -112,7 +140,7 @@ class TrivyReport(BaseModel):
 
 
 class EnrichedVulnerability(BaseModel):
-    """Vulnerability enriched with EPSS, KEV, ML context, and risk score."""
+    """Vulnerability enriched with EPSS, KEV, ML context, and VEX statements."""
 
     cve_id: str
     pkg_name: str
@@ -128,10 +156,16 @@ class EnrichedVulnerability(BaseModel):
     cwe_ids: list[str] = Field(default_factory=list)
     references: list[str] = Field(default_factory=list)
     purl: str = ""
+    reachable: bool | None = None
 
     epss: float = 0.0
     in_kev: bool = False
     has_exploit: bool = False
+
+    vex_status: str | None = None
+    vex_justification: str | None = None
+    vex_statement: str | None = None
+
     risk_score: float = 0.0
 
 
@@ -148,6 +182,7 @@ class ReportSummary(BaseModel):
     high: int = 0
     medium: int = 0
     low: int = 0
+    suppressed: int = 0
     max_risk_score: float = 0.0
     kev_count: int = 0
     exploit_count: int = 0

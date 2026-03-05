@@ -75,21 +75,30 @@ def write_scan_sarif_report(report: ScanReport, *, output: Path | None = None) -
 
         msg = f"Vulnerable package '{vuln.pkg_name}' ({vuln.installed_version}). \
             Risk Score: {vuln.risk_score}"
-        results.append(
-            {
-                "ruleId": vuln.cve_id,
-                "level": _severity_to_level(vuln.severity),
-                "message": {"text": msg},
-                "locations": [
-                    {
-                        "physicalLocation": {
-                            "artifactLocation": {"uri": f"docker://{report.image}"}
-                        },
-                        "logicalLocations": [{"name": vuln.pkg_name, "kind": "package"}],
-                    }
-                ],
-            }
-        )
+
+        result: dict[str, Any] = {
+            "ruleId": vuln.cve_id,
+            "level": _severity_to_level(vuln.severity),
+            "message": {"text": msg},
+            "locations": [
+                {
+                    "physicalLocation": {"artifactLocation": {"uri": f"docker://{report.image}"}},
+                    "logicalLocations": [{"name": vuln.pkg_name, "kind": "package"}],
+                }
+            ],
+        }
+
+        if vuln.vex_status in ("not_affected", "fixed"):
+            result["suppressions"] = [
+                {
+                    "kind": "external",
+                    "justification": vuln.vex_justification or "acceptedRisk",
+                    "state": "accepted",
+                }
+            ]
+            result["level"] = "note"
+
+        results.append(result)
 
     for issue in report.dockerfile_issues or []:
         if issue.id not in rule_ids:

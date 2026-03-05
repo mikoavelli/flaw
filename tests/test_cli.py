@@ -3,17 +3,23 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from typer.testing import CliRunner
 
 from flaw.cli import app
+from flaw.intelligence.epss import EPSSError
+from flaw.intelligence.kev import KEVError
 from flaw.models import (
     DockerfileIssue,
     EnrichedVulnerability,
     ReportSummary,
     ScanReport,
 )
+from flaw.scanner.dockerfile import DockerfileLintError
+from flaw.scanner.installer import InstallerError
+from flaw.scanner.trivy import ScannerError
 
 runner = CliRunner()
 
@@ -22,7 +28,7 @@ def test_version() -> None:
     """Test --version flag."""
     result = runner.invoke(app, ["--version"])
     assert result.exit_code == 0
-    assert "flaw 0.2.0" in result.stdout
+    assert "flaw 0.3.0" in result.stdout
 
 
 def test_help() -> None:
@@ -284,3 +290,177 @@ class TestScanCommand:
         mock_run.assert_called_once()
         call_kwargs = mock_run.call_args[1]
         assert str(call_kwargs["dockerfile"]) == "Dockerfile"
+
+    @patch("flaw.commands.scan.run_scan")
+    def test_scan_with_vex_flag(self, mock_run: MagicMock) -> None:
+        mock_run.return_value = self._get_dummy_report()
+
+        result = runner.invoke(app, ["scan", "nginx", "--vex", "app-vex.json"])
+
+        assert result.exit_code == 0
+        mock_run.assert_called_once()
+        call_kwargs = mock_run.call_args[1]
+
+        vex_paths = call_kwargs["vex_paths"]
+        assert len(vex_paths) == 1
+        assert str(vex_paths[0]) == "app-vex.json"
+
+
+class TestCacheCommands:
+    """Tests for `flaw cache` commands."""
+
+    @patch("flaw.commands.cache.epss.update")
+    @patch("flaw.commands.cache.kev.update")
+    @patch("flaw.commands.cache.ensure_model")
+    @patch("flaw.commands.cache.ensure_trivy")
+    def test_cache_update_success(
+        self,
+        mock_trivy: MagicMock,
+        mock_model: MagicMock,
+        mock_kev: MagicMock,
+        mock_epss: MagicMock,
+    ) -> None:
+        mock_epss.return_value = 100
+        mock_kev.return_value = 50
+        mock_model.return_value = True
+
+        result = runner.invoke(app, ["cache", "update"])
+        assert result.exit_code == 0
+        assert "done" in result.stderr
+
+    def test_cache_update_offline(self) -> None:
+        result = runner.invoke(app, ["--offline", "cache", "update"])
+        assert result.exit_code == 2
+        assert "Cannot update in offline mode" in result.stderr
+
+    @patch("flaw.commands.cache.DB_PATH")
+    @patch("flaw.commands.cache.get_entry_count", return_value=100)
+    @patch("flaw.commands.cache.get_last_update", return_value=time.time())
+    def test_cache_status_success(
+        self, mock_last: MagicMock, mock_count: MagicMock, mock_db_path: MagicMock
+    ) -> None:
+        mock_db_path.exists.return_value = True
+        mock_db_path.stat.return_value.st_size = 1024
+        result = runner.invoke(app, ["cache", "status"])
+        assert result.exit_code == 0
+        assert "Fresh" in result.stderr
+
+    @patch("flaw.commands.cache.DB_PATH")
+    def test_cache_status_no_db(self, mock_db_path: MagicMock) -> None:
+        mock_db_path.exists.return_value = False
+        result = runner.invoke(app, ["cache", "status"])
+        assert result.exit_code == 1
+        assert "No cache database found" in result.stderr
+
+    @patch("flaw.commands.cache.DB_PATH")
+    @patch("flaw.commands.cache.clear_all")
+    def test_cache_clean(self, mock_clear: MagicMock, mock_db_path: MagicMock) -> None:
+        mock_db_path.exists.return_value = True
+        result = runner.invoke(app, ["cache", "clean"])
+        assert result.exit_code == 0
+        assert "Cache cleared" in result.stderr
+
+    def test_cache_dir(self) -> None:
+        result = runner.invoke(app, ["cache", "dir"])
+        assert result.exit_code == 0
+        assert "flaw" in result.stdout
+
+
+class TestCliErrors:
+    """Tests for graceful error handling in CLI."""
+
+    @patch("flaw.commands.scan.run_scan", side_effect=ScannerError("Trivy crashed"))
+    def test_scan_scanner_error(self, mock_run: MagicMock) -> None:
+        result = runner.invoke(app, ["scan", "nginx"])
+        assert result.exit_code == 2
+        assert "Trivy crashed" in result.stderr
+
+    @patch("flaw.commands.scan.run_scan", side_effect=ScannerError("Trivy crashed"))
+    def test_scan_scanner_error_quiet(self, mock_run: MagicMock) -> None:
+        result = runner.invoke(app, ["--quiet", "scan", "nginx"])
+        assert result.exit_code == 2
+        assert "Trivy crashed" not in result.stderr
+
+    @patch("flaw.commands.lint.lint", side_effect=DockerfileLintError("Bad file"))
+    def test_lint_dockerfile_error(self, mock_lint: MagicMock) -> None:
+        result = runner.invoke(app, ["lint", "Dockerfile"])
+        assert result.exit_code == 2
+        assert "Bad file" in result.stderr
+
+    @patch("flaw.commands.update.ensure_model", return_value=None)
+    def test_update_model_fail(self, mock_model: MagicMock) -> None:
+        result = runner.invoke(app, ["update", "model"])
+        assert result.exit_code == 0
+        assert "failed" in result.stderr
+
+
+class TestCliEdgeCases:
+    """Tests for edge cases and exceptions across the CLI."""
+
+    @patch("flaw.commands.cache.epss.update", side_effect=EPSSError("EPSS Error"))
+    @patch("flaw.commands.cache.kev.update", side_effect=KEVError("KEV Error"))
+    @patch("flaw.commands.cache.ensure_model", return_value=None)
+    @patch("flaw.commands.cache.ensure_trivy", side_effect=InstallerError("Trivy Error"))
+    def test_cache_update_failures(
+        self,
+        mock_trivy: MagicMock,
+        mock_model: MagicMock,
+        mock_kev: MagicMock,
+        mock_epss: MagicMock,
+    ) -> None:
+        """Covers error branches in `flaw cache update`."""
+        result = runner.invoke(app, ["cache", "update"])
+        assert result.exit_code == 0
+        assert "EPSS Error" in result.stderr
+        assert "KEV Error" in result.stderr
+        assert "Trivy Error" in result.stderr
+        assert "failed" in result.stderr
+
+    @patch("flaw.commands.update._do_update_cache")
+    @patch("flaw.commands.update._do_update_model")
+    @patch("flaw.commands.update._do_update_trivy")
+    def test_update_all(
+        self, mock_trivy: MagicMock, mock_model: MagicMock, mock_cache: MagicMock
+    ) -> None:
+        """Covers `flaw update all`."""
+        result = runner.invoke(app, ["update", "all"])
+        assert result.exit_code == 0
+        assert "All components are up to date" in result.stderr
+
+    def test_update_offline_blocks(self) -> None:
+        """Covers offline blocking in `flaw update model` and `flaw update trivy`."""
+        res1 = runner.invoke(app, ["--offline", "update", "model"])
+        assert "Cannot update ML model in offline mode" in res1.stderr
+
+        res2 = runner.invoke(app, ["--offline", "update", "trivy"])
+        assert "Cannot update Trivy in offline mode" in res2.stderr
+
+    @patch("flaw.commands.scan.run_scan")
+    def test_scan_with_output_file(self, mock_run: MagicMock, tmp_path: Path) -> None:
+        """Covers the `if output is not None:` branch in standard table format."""
+        mock_run.return_value = ScanReport(image="test", scan_time="x", duration_seconds=1.0)
+        out = tmp_path / "out.txt"
+        result = runner.invoke(app, ["scan", "img", "-o", str(out)])
+        assert result.exit_code == 0
+        assert out.exists()
+
+    @patch("flaw.commands.lint.lint")
+    def test_lint_with_output_file(self, mock_lint: MagicMock, tmp_path: Path) -> None:
+        """Covers the `if output is not None:` branch in lint table format."""
+        mock_lint.return_value = []
+        out = tmp_path / "out.txt"
+        result = runner.invoke(app, ["lint", "Dockerfile", "-o", str(out)])
+        assert result.exit_code == 0
+        assert out.exists()
+
+    @patch("flaw.commands.status.DB_PATH")
+    @patch("flaw.commands.status.get_entry_count", return_value=0)
+    @patch("flaw.commands.status.get_last_update", return_value=0.0)
+    def test_status_empty_cache(
+        self, mock_last: MagicMock, mock_count: MagicMock, mock_db: MagicMock
+    ) -> None:
+        """Covers empty/never updated DB in `flaw status`."""
+        mock_db.exists.return_value = True
+        result = runner.invoke(app, ["status"])
+        assert result.exit_code == 0
+        assert "Empty" in result.stderr

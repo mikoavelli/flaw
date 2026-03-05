@@ -1,11 +1,15 @@
 import json
 import logging
+import sys
 from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).parent.parent
+sys.path.append(str(PROJECT_ROOT / "src"))
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger(__name__)
 
-MODEL_DIR = Path(__file__).parent.parent / "data" / "models"
+MODEL_DIR = PROJECT_ROOT / "data" / "models"
 
 
 def _parse_xgboost_dump(dump_lines: list[str], feature_to_idx: dict) -> list[dict]:
@@ -85,15 +89,13 @@ def _build_tree(nodes: dict[int, dict]) -> dict:
 
 
 def export() -> None:
-    import sys
-
     from xgboost import XGBClassifier
 
-    model_path = MODEL_DIR / "xgboost_v1.json"
+    model_path = MODEL_DIR / "xgboost_v2.json"
     meta_path = MODEL_DIR / "model_meta.json"
 
     if not model_path.exists() or not meta_path.exists():
-        logger.error("Model or metadata not found.")
+        logger.error(f"Model ({model_path}) or metadata ({meta_path}) not found.")
         return
 
     with open(meta_path, encoding="utf-8") as f:
@@ -107,7 +109,8 @@ def export() -> None:
     model.load_model(str(model_path))
 
     booster = model.get_booster()
-    dump = booster.get_dump()
+    booster.feature_names = features
+    dump = booster.get_dump(with_stats=False)
 
     full_dump = ""
     for i, tree_str in enumerate(dump):
@@ -116,7 +119,7 @@ def export() -> None:
     trees = _parse_xgboost_dump(full_dump.splitlines(), feature_to_idx)
 
     export_data = {
-        "format": "flaw_xgboost_v1",
+        "format": "flaw_xgboost_v2",
         "features": features,
         "vendor_vocab": meta.get("vendor_vocab", []),
         "product_vocab": meta.get("product_vocab", []),
@@ -133,16 +136,22 @@ def export() -> None:
 
     logger.info("Verifying export...")
     try:
-        from flaw.intelligence.scoring import _TreeModel
-    except ImportError:
-        logger.warning("Could not import flaw.intelligence.scoring to verify export.")
-        sys.exit(0)
+        from flaw.intelligence.scoring import MLScorer
+    except ImportError as e:
+        logger.warning(f"Could not import flaw.intelligence.scoring to verify export: {e}")
+        return
 
-    portable_model = _TreeModel(export_data["trees"])
+    portable_model = MLScorer(export_data)
+
     dummy_features = [0.0] * len(features)
 
     xgb_prob = model.predict_proba([dummy_features])[0][1]
-    portable_prob = portable_model.predict(dummy_features)
+
+    raw_sum = sum(portable_model._walk(tree, dummy_features) for tree in portable_model.trees)
+    import math
+
+    portable_prob = 1.0 / (1.0 + math.exp(-raw_sum))
+
     diff = abs(xgb_prob - portable_prob)
     status = "OK" if diff < 0.01 else "FAIL"
 

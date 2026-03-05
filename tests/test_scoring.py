@@ -13,7 +13,7 @@ from flaw.intelligence.scoring import (
     _parse_purl,
     score_vulnerabilities,
 )
-from flaw.models import EnrichedVulnerability
+from flaw.models import EnrichedVulnerability, VexJustification, VexStatement, VexStatus
 
 
 def _make_vuln(
@@ -160,3 +160,58 @@ class TestScoreVulnerabilities:
 
         scoring_module._cached_model = None
         scoring_module._model_load_attempted = False
+
+
+class TestVexOverrides:
+    def test_native_reachability_overrides_score(self) -> None:
+        """If Trivy says reachable=False, risk must be 0.0 and VEX generated."""
+        vuln = _make_vuln(cvss=9.8)
+        vuln.reachable = False
+
+        with patch("flaw.intelligence.scoring.ensure_model", return_value=None):
+            scored = score_vulnerabilities([vuln])
+
+        assert scored[0].risk_score == 0.0
+        assert scored[0].vex_status == "not_affected"
+        assert scored[0].vex_justification == "vulnerable_code_not_in_execute_path"
+
+    def test_external_vex_not_affected(self) -> None:
+        """External VEX statement should reduce score to 0.0."""
+        vuln = _make_vuln(cvss=9.8)
+        stmt = VexStatement(
+            cve_id="CVE-2024-0001",
+            status=VexStatus.NOT_AFFECTED,
+            justification=VexJustification.COMPONENT_NOT_PRESENT,
+        )
+
+        with patch("flaw.intelligence.scoring.ensure_model", return_value=None):
+            scored = score_vulnerabilities([vuln], vex_statements=[stmt])
+
+        assert scored[0].risk_score == 0.0
+        assert scored[0].vex_status == "not_affected"
+
+    def test_external_vex_under_investigation(self) -> None:
+        """Under investigation should halve the raw score."""
+        vuln = _make_vuln(cvss=10.0)
+        stmt = VexStatement(cve_id="CVE-2024-0001", status=VexStatus.UNDER_INVESTIGATION)
+
+        with patch("flaw.intelligence.scoring.ensure_model", return_value=None):
+            scored = score_vulnerabilities([vuln], vex_statements=[stmt])
+
+        assert scored[0].risk_score == 15.0
+        assert scored[0].vex_status == "under_investigation"
+
+    def test_vex_purl_mismatch(self) -> None:
+        """If VEX specifies a PURL but it doesn't match the vuln, don't apply it."""
+        vuln = _make_vuln(cvss=10.0)
+        vuln.purl = "pkg:npm/different-pkg@1.0.0"
+
+        stmt = VexStatement(
+            cve_id="CVE-2024-0001", status=VexStatus.NOT_AFFECTED, purl="pkg:npm/specific-pkg@2.0.0"
+        )
+
+        with patch("flaw.intelligence.scoring.ensure_model", return_value=None):
+            scored = score_vulnerabilities([vuln], vex_statements=[stmt])
+
+        assert scored[0].risk_score > 0.0
+        assert scored[0].vex_status is None

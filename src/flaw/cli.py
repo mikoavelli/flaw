@@ -8,6 +8,7 @@ from typing import Annotated
 import typer
 
 from flaw import __version__
+from flaw.commands.cache import cache_app
 from flaw.commands.clean import clean_command
 from flaw.commands.lint import lint_command
 from flaw.commands.scan import scan_command
@@ -27,6 +28,7 @@ app = typer.Typer(
 )
 
 app.add_typer(update_app, name="update")
+app.add_typer(cache_app, name="cache")
 app.command(name="scan")(scan_command)
 app.command(name="lint")(lint_command)
 app.command(name="status")(status_command)

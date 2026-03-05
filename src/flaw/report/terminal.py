@@ -72,30 +72,41 @@ def _print_vuln_table(vulns: list[EnrichedVulnerability]) -> None:
     table.add_column("Risk", justify="right", width=6)
 
     for i, v in enumerate(vulns, 1):
-        sev_style = _severity_style(v.severity)
-        kev_marker = "[red]●[/red]" if v.in_kev else ""
+        is_suppressed = v.vex_status in ("not_affected", "fixed")
+        row_style = "dim" if is_suppressed else ""
+        sev_style = "dim" if is_suppressed else _severity_style(v.severity)
+
+        kev_marker = "[red]●[/red]" if v.in_kev and not is_suppressed else ""
 
         badges = []
-        refs = [r.lower() for r in v.references]
-        purl = v.purl.lower()
+        if is_suppressed:
+            if v.vex_justification == "vulnerable_code_not_in_execute_path":
+                badges.append("[bold green]Not Reachable[/bold green]")
+            elif v.vex_status == "fixed":
+                badges.append("[bold green]Fixed[/bold green]")
+            else:
+                badges.append("[bold green]VEX Suppressed[/bold green]")
+        else:
+            refs = [r.lower() for r in v.references]
+            purl = v.purl.lower()
 
-        if any("exploit-db.com" in r for r in refs):
-            badges.append("[bold red]Exploit-DB[/bold red]")
-        elif any("packetstorm" in r for r in refs):
-            badges.append("[bold red]PStorm[/bold red]")
-        elif any("github.com" in r and ("poc" in r or "exploit" in r) for r in refs):
-            badges.append("[yellow]GitHub PoC[/yellow]")
+            if any("exploit-db.com" in r for r in refs):
+                badges.append("[bold red]Exploit-DB[/bold red]")
+            elif any("packetstorm" in r for r in refs):
+                badges.append("[bold red]PStorm[/bold red]")
+            elif any("github.com" in r and ("poc" in r or "exploit" in r) for r in refs):
+                badges.append("[yellow]GitHub PoC[/yellow]")
 
-        if "npm" in purl:
-            badges.append("[blue]npm[/blue]")
-        elif "pypi" in purl:
-            badges.append("[blue]pypi[/blue]")
-        elif "golang" in purl:
-            badges.append("[cyan]go[/cyan]")
-        elif "maven" in purl:
-            badges.append("[magenta]java[/magenta]")
-        elif "rust" in purl or "cargo" in purl:
-            badges.append("[color(208)]rust[/color(208)]")
+            if "npm" in purl:
+                badges.append("[blue]npm[/blue]")
+            elif "pypi" in purl:
+                badges.append("[blue]pypi[/blue]")
+            elif "golang" in purl:
+                badges.append("[cyan]go[/cyan]")
+            elif "maven" in purl:
+                badges.append("[magenta]java[/magenta]")
+            elif "rust" in purl or "cargo" in purl:
+                badges.append("[color(208)]rust[/color(208)]")
 
         ctx_str = " ".join(badges)
 
@@ -104,10 +115,11 @@ def _print_vuln_table(vulns: list[EnrichedVulnerability]) -> None:
             f"[{sev_style}]{v.cve_id}[/{sev_style}]",
             v.pkg_name,
             f"{v.cvss:.1f}",
-            f"{v.epss:.4f}",
+            f"{v.epss:.4f}" if not is_suppressed else "-",
             kev_marker,
             ctx_str,
             f"[bold]{v.risk_score:.1f}[/bold]",
+            style=row_style,
         )
 
     stderr.print()
@@ -132,6 +144,8 @@ def _print_summary(report: ScanReport) -> None:
     s = report.summary
     stderr.print(" [bold]Summary:[/bold]")
     stderr.print(f"   Critical: {s.critical}  High: {s.high}  Medium: {s.medium}  Low: {s.low}")
+    if s.suppressed > 0:
+        stderr.print(f"   [bold green]Suppressed by VEX/Reachability: {s.suppressed}[/bold green]")
     if s.kev_count > 0 or s.exploit_count > 0:
         stderr.print(f"   In CISA KEV: {s.kev_count}  Has public exploit: {s.exploit_count}")
     stderr.print()

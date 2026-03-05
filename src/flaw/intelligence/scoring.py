@@ -10,7 +10,7 @@ from pathlib import Path
 
 from flaw.core.paths import DATA_DIR
 from flaw.intelligence.model_manager import ensure_model
-from flaw.models import EnrichedVulnerability
+from flaw.models import EnrichedVulnerability, VexStatement
 
 logger = logging.getLogger("flaw")
 
@@ -244,8 +244,13 @@ def _load_model() -> MLScorer | None:
 
 def score_vulnerabilities(
     vulnerabilities: list[EnrichedVulnerability],
+    vex_statements: list[VexStatement] | None = None,
 ) -> list[EnrichedVulnerability]:
+    """Assign risk scores, apply VEX overrides, and sort by risk descending."""
+    from flaw.models import VexJustification, VexStatus
+
     model = _load_model()
+    vex_stmts = vex_statements or []
 
     if model:
         logger.debug(
@@ -256,16 +261,63 @@ def score_vulnerabilities(
             "Scoring %d vulnerabilities with fallback weighted formula", len(vulnerabilities)
         )
 
+    if vex_stmts:
+        logger.debug("Applying %d VEX statements...", len(vex_stmts))
+
     scored = []
     for vuln in vulnerabilities:
         if model:
-            score = model.score(vuln)
+            raw_score = model.score(vuln)
             if vuln.in_kev:
-                score = max(score, 90.0)
+                raw_score = max(raw_score, 90.0)
         else:
-            score = _formula_score(vuln)
+            raw_score = _formula_score(vuln)
 
-        scored.append(vuln.model_copy(update={"risk_score": round(score, 1)}))
+        matched_vex = None
+        if vuln.reachable is False:
+            from flaw.models import VexStatement
+
+            matched_vex = VexStatement(
+                cve_id=vuln.cve_id,
+                status=VexStatus.NOT_AFFECTED,
+                justification=VexJustification.VULNERABLE_CODE_NOT_IN_EXECUTE_PATH,
+                impact_statement="Scanner detected code as not reachable in the call graph.",
+            )
+
+        if not matched_vex:
+            for stmt in vex_stmts:
+                if stmt.cve_id == vuln.cve_id:
+                    if not stmt.purl or (vuln.purl and stmt.purl in vuln.purl):
+                        matched_vex = stmt
+                        break
+
+        final_score = raw_score
+        vex_status = None
+        vex_justification = None
+        vex_impact = None
+
+        if matched_vex:
+            vex_status = matched_vex.status.value
+            vex_justification = (
+                matched_vex.justification.value if matched_vex.justification else None
+            )
+            vex_impact = matched_vex.impact_statement
+
+            if matched_vex.status in (VexStatus.NOT_AFFECTED, VexStatus.FIXED):
+                final_score = 0.0
+            elif matched_vex.status == VexStatus.UNDER_INVESTIGATION:
+                final_score = raw_score * 0.5
+
+        scored.append(
+            vuln.model_copy(
+                update={
+                    "risk_score": round(final_score, 1),
+                    "vex_status": vex_status,
+                    "vex_justification": vex_justification,
+                    "vex_statement": vex_impact,
+                }
+            )
+        )
 
     scored.sort(key=lambda v: v.risk_score, reverse=True)
     return scored

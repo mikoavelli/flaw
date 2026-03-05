@@ -21,6 +21,7 @@ from flaw.models import (
 from flaw.scanner.dockerfile import DockerfileLintError, lint
 from flaw.scanner.runtime import resolve_image_source
 from flaw.scanner.trivy import scan_image
+from flaw.scanner.vex import parse_openvex
 
 logger = logging.getLogger("flaw")
 
@@ -28,10 +29,18 @@ logger = logging.getLogger("flaw")
 def _build_summary(vulns: list[EnrichedVulnerability]) -> ReportSummary:
     """Compute summary statistics from scored vulnerabilities."""
     severity_counts: dict[str, int] = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0}
+    suppressed = 0
+
     for v in vulns:
+        if v.vex_status in ("not_affected", "fixed"):
+            suppressed += 1
+            continue
+
         key = v.severity.upper()
         if key in severity_counts:
             severity_counts[key] += 1
+
+    active_vulns = [v for v in vulns if v.vex_status not in ("not_affected", "fixed")]
 
     return ReportSummary(
         total=len(vulns),
@@ -39,9 +48,10 @@ def _build_summary(vulns: list[EnrichedVulnerability]) -> ReportSummary:
         high=severity_counts["HIGH"],
         medium=severity_counts["MEDIUM"],
         low=severity_counts["LOW"],
+        suppressed=suppressed,
         max_risk_score=max((v.risk_score for v in vulns), default=0.0),
-        kev_count=sum(1 for v in vulns if v.in_kev),
-        exploit_count=sum(1 for v in vulns if v.has_exploit),
+        kev_count=sum(1 for v in active_vulns if v.in_kev),
+        exploit_count=sum(1 for v in active_vulns if v.has_exploit),
     )
 
 
@@ -49,6 +59,7 @@ def run_scan(
     image: str,
     *,
     dockerfile: Path | None = None,
+    vex_paths: list[Path] | None = None,
     settings: Settings | None = None,
 ) -> ScanReport:
     """Execute the full scan pipeline."""
@@ -80,7 +91,9 @@ def run_scan(
     finally:
         conn.close()
 
-    scored = score_vulnerabilities(enriched)
+    vex_statements = parse_openvex(vex_paths)
+    scored = score_vulnerabilities(enriched, vex_statements)
+
     logger.debug(
         "Scoring complete, max risk: %.1f",
         max((v.risk_score for v in scored), default=0.0),

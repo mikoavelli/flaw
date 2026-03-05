@@ -155,6 +155,17 @@ class TestDockerfileLint:
         ids = [i.id for i in issues]
         assert "DF-003" not in ids
 
+    def test_read_os_error(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        path = _write_dockerfile(tmp_path, "FROM python")
+
+        def mock_read_text(*args, **kwargs):
+            raise OSError("Permission denied")
+
+        monkeypatch.setattr(Path, "read_text", mock_read_text)
+
+        with pytest.raises(DockerfileLintError, match="Cannot read Dockerfile"):
+            lint(path)
+
 
 class TestDockerfileLineNumbers:
     """Tests that line numbers are correctly reported."""

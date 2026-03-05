@@ -148,3 +148,71 @@ class TestInstaller:
             with patch("flaw.scanner.installer.platform.system", return_value="Windows"):
                 _extract_binary(archive_path)
                 mock_zip_obj.open.assert_called_once_with("trivy.exe")
+
+    @patch("flaw.scanner.installer.subprocess.run")
+    @patch("flaw.scanner.installer.shutil.which")
+    def test_get_trivy_info_exception(self, mock_which: MagicMock, mock_run: MagicMock) -> None:
+        mock_which.return_value = "/usr/bin/trivy"
+
+        mock_run.side_effect = Exception("Crash")
+        path, version = get_trivy_info()
+        assert path == "/usr/bin/trivy"
+        assert version == "Unknown version"
+
+    @patch("flaw.scanner.installer.Path.unlink")
+    @patch("flaw.scanner.installer.load_settings")
+    @patch("flaw.scanner.installer.TRIVY_BIN")
+    @patch("flaw.scanner.installer._extract_binary")
+    @patch("flaw.scanner.installer.httpx.Client")
+    @patch("flaw.scanner.installer.platform.machine", return_value="x86_64")
+    @patch("flaw.scanner.installer.platform.system", return_value="Linux")
+    def test_download_extraction_fails(
+        self,
+        mock_sys,
+        mock_mach,
+        mock_client_cls,
+        mock_extract,
+        mock_bin,
+        mock_settings,
+        mock_unlink,
+    ) -> None:
+        mock_client = MagicMock()
+        mock_client_cls.return_value.__enter__.return_value = mock_client
+        mock_client.get.return_value.json.return_value = {
+            "assets": [{"name": "trivy_Linux-64bit.tar.gz", "browser_download_url": "http://dl"}]
+        }
+
+        mock_bin.exists.return_value = False
+
+        with patch("builtins.open", mock_open()):
+            with pytest.raises(InstallerError, match="Extraction failed: trivy binary not found"):
+                _download_trivy()
+
+    @patch("flaw.scanner.installer.shutil.which", return_value=None)
+    @patch("flaw.scanner.installer.TRIVY_BIN")
+    @patch("flaw.scanner.installer.os.access", return_value=True)
+    def test_ensure_trivy_local_bin_exists(
+        self, mock_access: MagicMock, mock_bin: MagicMock, mock_which: MagicMock
+    ) -> None:
+        """Covers logic when trivy is not in PATH but exists in local ~/.local/share/flaw/bin/."""
+        mock_bin.exists.return_value = True
+        assert ensure_trivy() == str(mock_bin)
+
+    @patch("flaw.scanner.installer.load_settings")
+    @patch("flaw.scanner.installer.httpx.Client")
+    @patch("flaw.scanner.installer.platform.machine", return_value="x86_64")
+    @patch("flaw.scanner.installer.platform.system", return_value="Linux")
+    def test_download_trivy_no_matching_assets(
+        self,
+        mock_sys: MagicMock,
+        mock_mach: MagicMock,
+        mock_client_cls: MagicMock,
+        mock_settings: MagicMock,
+    ) -> None:
+        """Covers logic when GitHub API returns no valid assets for the current OS."""
+        mock_client = MagicMock()
+        mock_client_cls.return_value.__enter__.return_value = mock_client
+        mock_client.get.return_value.json.return_value = {"assets": []}
+
+        with pytest.raises(InstallerError, match="No Trivy release found"):
+            _download_trivy()

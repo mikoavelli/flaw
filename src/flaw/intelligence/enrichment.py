@@ -66,6 +66,7 @@ def enrich(
                 cwe_ids=v.cwe_ids,
                 references=v.references,
                 purl=v.purl,
+                reachable=v.reachable,
                 epss=epss_scores.get(v.cve_id, 0.0),
                 in_kev=v.cve_id in kev_set,
                 has_exploit=v.cve_id in kev_set,
